@@ -135,6 +135,9 @@ struct Cli {
 
     #[arg(long)]
     mount_point: Option<PathBuf>,
+
+    #[arg(long)]
+    test_replication: bool,
 }
 
 #[tokio::main]
@@ -176,6 +179,11 @@ async fn main() -> Result<()> {
     if cli.demo_mode {
         info!("Running in demo mode");
         return run_demo(&galleonfs, &cli).await;
+    }
+
+    if cli.test_replication {
+        info!("Running replication and double mount test");
+        return galleonfs::replication_mount_test::run_replication_and_double_mount_test().await;
     }
 
     // Start the mount manager service if mount point is specified

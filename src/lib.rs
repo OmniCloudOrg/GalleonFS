@@ -18,6 +18,7 @@ pub mod security;
 pub mod monitoring;
 pub mod replication;
 pub mod volume_mount;
+pub mod replication_mount_test;
 
 #[cfg(unix)]
 pub mod fuse_fs;
