@@ -31,6 +31,7 @@ impl ReplicationRequest {
     }
 }
 
+#[derive(Clone)]
 pub struct ReplicationService {
     storage_engine: Arc<dyn StorageEngine>,
     peer_addresses: Vec<String>,
