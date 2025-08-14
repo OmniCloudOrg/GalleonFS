@@ -19,3 +19,12 @@ target/
 /test_mount
 /test_mount_node1
 /test_storage_node1
+/galleonfs_storage_node*
+/test_mount_node*
+/test_storage_node*
+# Large test and storage files
+**/*storage*
+**/*mount*
+*.large
+*.tmp
+*.sock

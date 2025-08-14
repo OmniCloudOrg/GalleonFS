@@ -19,6 +19,9 @@ pub mod monitoring;
 pub mod replication;
 pub mod volume_mount;
 pub mod replication_mount_test;
+pub mod daemon;
+pub mod cli;
+pub mod cluster;
 
 #[cfg(unix)]
 pub mod fuse_fs;
