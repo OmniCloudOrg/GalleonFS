@@ -222,6 +222,129 @@ Commands:
   create     Create storage class from configuration file
 ```
 
+## Testing Scripts
+
+GalleonFS includes comprehensive testing scripts for automated cluster setup and testing:
+
+### 🧪 **Automated Two-Node Cluster Testing**
+
+Two testing scripts are provided for setting up and testing a complete two-node cluster:
+
+- **`test-cluster.sh`**: Bash script for Linux/macOS
+- **`test-cluster.ps1`**: PowerShell script for Windows
+
+**Features:**
+- ✅ Automated two-node cluster setup with different bind addresses
+- ✅ Network replicated volume creation and verification  
+- ✅ Comprehensive cluster status and peer verification
+- ✅ Graceful cleanup and error handling
+- ✅ Detailed logging and progress reporting
+- ✅ Service readiness checking with timeout handling
+
+### Running the Test Scripts
+
+**Linux/macOS:**
+```bash
+# Make executable and run
+chmod +x test-cluster.sh
+./test-cluster.sh
+```
+
+**Windows PowerShell:**
+```powershell
+# Run with default settings
+.\test-cluster.ps1
+
+# Skip automatic building
+.\test-cluster.ps1 -SkipBuild
+
+# Keep storage files after completion
+.\test-cluster.ps1 -KeepFiles
+```
+
+### What the Scripts Test
+
+1. **Daemon Startup**: Starts two GalleonFS nodes in daemon mode
+2. **Cluster Formation**: Verifies nodes join into a unified cluster
+3. **IPC Communication**: Tests CLI communication with daemon services
+4. **Volume Management**: Creates, lists, and queries replicated volumes
+5. **Cross-Node Operations**: Verifies cluster operations from both nodes
+6. **Cleanup**: Gracefully stops services and removes test data
+
+### Script Output Example
+
+```
+[INFO] Starting GalleonFS Two-Node Cluster Test
+[INFO] ========================================
+[INFO] Configuration:
+[INFO]   Node 1: Storage=./test_node1_storage, Bind=127.0.0.1:8081, IPC=127.0.0.1:8091
+[INFO]   Node 2: Storage=./test_node2_storage, Bind=127.0.0.1:8082, IPC=127.0.0.1:8092
+[INFO]   Volume: Name=test-replicated-volume, Size=1G, Replicas=2
+
+[INFO] Step 1: Starting Node 1 (creates cluster)
+[INFO] Node 1 started with PID: 1234
+[SUCCESS] Node 1 IPC service is ready!
+
+[INFO] Step 2: Starting Node 2 (joins cluster)  
+[INFO] Node 2 started with PID: 1235
+[SUCCESS] Node 2 IPC service is ready!
+
+[INFO] Step 3: Checking cluster status
+==========================
+Cluster Status:
+  Node ID: 13238112-0ac7-4042-9f96-97f7dba8b801
+  Cluster Size: 2 nodes
+  Peers:
+    Node 2: 127.0.0.1:8082 (Connected)
+
+[INFO] Step 4: Creating replicated volume
+=================================
+Volume created successfully:
+  ID: f6bddca9-fb8b-4470-860b-dfde7b708e58
+  Name: test-replicated-volume
+  Type: Persistent
+  Size: 1073741824 bytes (1.00 GB)
+  Storage Class: encrypted-storage
+  State: Available
+
+[SUCCESS] Two-node cluster test completed successfully!
+```
+
+### Development & CI Integration
+
+The testing scripts are designed for:
+
+- **Local Development**: Quick verification of changes
+- **CI/CD Pipelines**: Automated testing in build workflows  
+- **Regression Testing**: Ensuring core functionality remains stable
+- **Documentation Examples**: Demonstrating real-world usage patterns
+
+### Customization
+
+Both scripts can be easily customized by modifying the configuration variables at the top:
+
+```bash
+# Bash script configuration
+NODE1_STORAGE="./test_node1_storage"
+NODE2_STORAGE="./test_node2_storage"  
+NODE1_BIND="127.0.0.1:8081"
+NODE2_BIND="127.0.0.1:8082"
+VOLUME_NAME="test-replicated-volume"
+VOLUME_SIZE="1G"
+REPLICAS=2
+```
+
+```powershell
+# PowerShell script configuration
+$NODE1_STORAGE = ".\test_node1_storage"
+$NODE2_STORAGE = ".\test_node2_storage"
+$NODE1_BIND = "127.0.0.1:8081"
+$NODE2_BIND = "127.0.0.1:8082"
+$VOLUME_NAME = "test-replicated-volume"
+$VOLUME_SIZE = "1G"
+$REPLICAS = 2
+```
+
 ## Built-in Storage Classes
 
 GalleonFS automatically creates default storage classes:
