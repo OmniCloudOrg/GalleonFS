@@ -452,6 +452,15 @@ impl GalleonVolumeFile {
         let start_block = self.position / block_size;
         let mut written = 0;
 
+        // Determine write concern based on volume type
+        let volume = self.galleonfs.get_volume(self.volume_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Volume not found"))?;
+        let write_concern = if volume.volume_type == crate::VolumeType::Shared {
+            WriteConcern::WriteReplicated
+        } else {
+            WriteConcern::WriteDurable
+        };
+
         for (i, chunk) in buf.chunks(block_size as usize).enumerate() {
             let block_id = start_block + i as u64;
             let block_offset = if i == 0 { self.position % block_size } else { 0 };
@@ -462,7 +471,7 @@ impl GalleonVolumeFile {
                     self.volume_id,
                     block_id,
                     chunk,
-                    WriteConcern::WriteDurable
+                    write_concern
                 ).await?;
                 written += chunk.len();
             } else {
@@ -488,7 +497,7 @@ impl GalleonVolumeFile {
                     self.volume_id,
                     block_id,
                     &block_data,
-                    WriteConcern::WriteDurable
+                    write_concern
                 ).await?;
                 
                 written += copy_len;

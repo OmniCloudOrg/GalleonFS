@@ -568,6 +568,15 @@ impl GalleonFS {
         );
         
         self.storage_engine.create_volume(&mut volume).await?;
+        
+        // Replicate volume creation to peers if this is a shared or replicated volume
+        if volume.volume_type == VolumeType::Shared || self.is_replicated_storage_class(&volume.storage_class).await? {
+            if let Err(e) = self.replication_service.replicate_volume_creation(&volume).await {
+                tracing::warn!("Failed to replicate volume creation to peers: {}", e);
+                // Don't fail the entire operation, just log the warning
+            }
+        }
+        
         Ok(volume)
     }
 
@@ -664,6 +673,26 @@ impl GalleonFS {
 
     pub async fn list_volumes(&self) -> Result<Vec<Volume>> {
         self.storage_engine.list_volumes().await
+    }
+
+    // Helper method to check if a storage class is configured for replication
+    async fn is_replicated_storage_class(&self, storage_class_name: &str) -> Result<bool> {
+        if let Some(storage_class) = self.get_storage_class(storage_class_name).await? {
+            // Check if the storage class has replication parameters
+            if let Some(replication) = storage_class.parameters.get("replication") {
+                if let Ok(replica_count) = replication.parse::<i32>() {
+                    return Ok(replica_count > 1);
+                }
+            }
+            
+            // Check if the provisioner indicates distributed/replicated storage
+            if storage_class.provisioner.contains("distributed") {
+                return Ok(true);
+            }
+        }
+        
+        // Default to considering encrypted storage as replicated
+        Ok(storage_class_name.contains("encrypted") || storage_class_name.contains("replicated"))
     }
 
 
