@@ -71,7 +71,8 @@ impl VolumeMountManager {
         let volume = self.galleonfs.get_volume(volume_id).await?
             .ok_or_else(|| anyhow::anyhow!("Volume not found: {}", volume_id))?;
 
-        if volume.state != VolumeState::Available {
+        // Allow mounting if volume is Available or already Mounted (for multi-mount scenarios)
+        if volume.state != VolumeState::Available && volume.state != VolumeState::Mounted {
             return Err(anyhow::anyhow!("Volume {} is not available for mounting (state: {:?})", volume_id, volume.state));
         }
 

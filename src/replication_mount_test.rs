@@ -264,7 +264,7 @@ async fn create_test_node(
         ReplicationStrategy::Synchronous,
         PersistenceLevel::High, // High persistence for replication testing
         peers,
-    )?;
+    );
     
     // Set up default storage classes with replication
     setup_replicated_storage_classes(&galleonfs).await?;

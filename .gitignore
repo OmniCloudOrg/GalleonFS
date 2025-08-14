@@ -17,3 +17,5 @@ target/
 #.idea/
 /galleonfs_storage
 /test_mount
+/test_mount_node1
+/test_storage_node1
