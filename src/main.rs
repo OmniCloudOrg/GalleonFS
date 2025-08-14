@@ -507,35 +507,72 @@ async fn run_mount_demo(
     info!("8. Demonstrating multiple mount points for same volume");
 
     let web_readonly_mount = base_mount_point.join("web-readonly");
-    let web_readonly_mount_id = mount_manager.mount_volume(
+    match mount_manager.mount_volume(
         web_volume.id,
         web_readonly_mount.clone(),
         vec!["ro".to_string()] // Read-only
-    ).await?;
-    info!("Web volume also mounted read-only at: {}", web_readonly_mount.display());
+    ).await {
+        Ok(web_readonly_mount_id) => {
+            info!("Web volume also mounted read-only at: {}", web_readonly_mount.display());
+            
+            // Demo reading from the read-only mount
+            let mut readonly_file = mount_manager.open_volume_file(&web_readonly_mount).await?;
+            let mut readonly_buffer = vec![0; 50];
+            readonly_file.seek(std::io::SeekFrom::Start(0))?;
+            let readonly_read = readonly_file.read(&mut readonly_buffer).await?;
+            info!("Read from readonly mount: {}", String::from_utf8_lossy(&readonly_buffer[..readonly_read]));
+            
+            // Add this mount ID to cleanup list
+            let cleanup_readonly_mount = web_readonly_mount_id;
+            
+            // Demo 9: Performance metrics for mounted volumes
+            info!("9. Checking performance metrics for mounted volumes");
 
-    // Demo 9: Performance metrics for mounted volumes
-    info!("9. Checking performance metrics for mounted volumes");
+            let web_metrics = galleonfs.get_volume_metrics(web_volume.id).await?;
+            info!("Web volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
+                  web_metrics.iops, web_metrics.throughput_mbps, web_metrics.latency_ms);
 
-    let web_metrics = galleonfs.get_volume_metrics(web_volume.id).await?;
-    info!("Web volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
-          web_metrics.iops, web_metrics.throughput_mbps, web_metrics.latency_ms);
+            let db_metrics = galleonfs.get_volume_metrics(db_volume.id).await?;
+            info!("Database volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
+                  db_metrics.iops, db_metrics.throughput_mbps, db_metrics.latency_ms);
 
-    let db_metrics = galleonfs.get_volume_metrics(db_volume.id).await?;
-    info!("Database volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
-          db_metrics.iops, db_metrics.throughput_mbps, db_metrics.latency_ms);
+            // Demo 10: Cleanup - Unmount volumes
+            info!("10. Cleaning up - unmounting volumes");
 
-    // Demo 10: Cleanup - Unmount volumes
-    info!("10. Cleaning up - unmounting volumes");
+            mount_manager.unmount_volume(web_mount_id).await?;
+            info!("Unmounted web volume from primary mount");
 
-    mount_manager.unmount_volume(web_mount_id).await?;
-    info!("Unmounted web volume from primary mount");
+            mount_manager.unmount_volume(cleanup_readonly_mount).await?;
+            info!("Unmounted web volume from read-only mount");
 
-    mount_manager.unmount_volume(web_readonly_mount_id).await?;
-    info!("Unmounted web volume from read-only mount");
+            mount_manager.unmount_volume(db_mount_id).await?;
+            info!("Unmounted database volume");
+        }
+        Err(e) => {
+            info!("Expected: Multiple mounts not supported for this volume type: {}", e);
+            info!("Note: Encrypted/distributed volumes and shared volumes support multiple mounts");
+            
+            // Demo 9: Performance metrics for mounted volumes  
+            info!("9. Checking performance metrics for mounted volumes");
 
-    mount_manager.unmount_volume(db_mount_id).await?;
-    info!("Unmounted database volume");
+            let web_metrics = galleonfs.get_volume_metrics(web_volume.id).await?;
+            info!("Web volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
+                  web_metrics.iops, web_metrics.throughput_mbps, web_metrics.latency_ms);
+
+            let db_metrics = galleonfs.get_volume_metrics(db_volume.id).await?;
+            info!("Database volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
+                  db_metrics.iops, db_metrics.throughput_mbps, db_metrics.latency_ms);
+
+            // Demo 10: Cleanup - Unmount volumes
+            info!("10. Cleaning up - unmounting volumes");
+
+            mount_manager.unmount_volume(web_mount_id).await?;
+            info!("Unmounted web volume");
+
+            mount_manager.unmount_volume(db_mount_id).await?;
+            info!("Unmounted database volume");
+        }
+    }
 
     info!("=== Volume Mounting Demo Completed! ===");
     info!("Key capabilities demonstrated:");

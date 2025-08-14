@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
-use crate::{GalleonFS, Volume, WriteConcern, VolumeState};
+use crate::{GalleonFS, Volume, WriteConcern, VolumeState, AccessMode, VolumeType};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MountState {
@@ -83,6 +83,18 @@ impl VolumeMountManager {
             }
         }
 
+        // Check if volume can support multiple mounts based on its characteristics
+        let existing_mounts = self.get_volume_mounts(volume_id).await;
+        if !existing_mounts.is_empty() {
+            let can_multi_mount = self.can_support_multiple_mounts(&volume, &mount_options).await?;
+            if !can_multi_mount {
+                return Err(anyhow::anyhow!(
+                    "Volume {} does not support multiple concurrent mounts (type: {:?}, access_modes: {:?})", 
+                    volume_id, volume.volume_type, volume.access_modes
+                ));
+            }
+        }
+
         // Create mount
         let mount = VolumeMount::new(volume_id, mount_point.clone(), mount_options);
         let mount_id = mount.mount_id;
@@ -115,8 +127,14 @@ impl VolumeMountManager {
                 .push(mount_id);
         }
 
-        // Update volume state in GalleonFS
-        self.galleonfs.storage_engine.update_volume_state(volume_id, VolumeState::Mounted).await?;
+        // Update volume state in GalleonFS (only if this is the first mount)
+        let volume_mounts = self.volume_mounts.read().await;
+        let mount_count = volume_mounts.get(&volume_id).map_or(0, |mounts| mounts.len());
+        drop(volume_mounts);
+        
+        if mount_count == 1 {
+            self.galleonfs.storage_engine.update_volume_state(volume_id, VolumeState::Mounted).await?;
+        }
 
         tracing::info!("Volume {} mounted at {}", volume_id, mount_point.display());
         Ok(mount_id)
@@ -217,6 +235,78 @@ impl VolumeMountManager {
         } else {
             None
         }
+    }
+
+    /// Check if a volume can support multiple concurrent mounts
+    async fn can_support_multiple_mounts(&self, volume: &Volume, mount_options: &[String]) -> Result<bool> {
+        // Check if this is a read-only mount
+        let is_readonly = mount_options.iter().any(|opt| opt == "ro" || opt == "readonly");
+        
+        // ReadOnlyMany volumes can always be mounted multiple times
+        if volume.access_modes.contains(&AccessMode::ReadOnlyMany) {
+            return Ok(true);
+        }
+        
+        // ReadWriteMany volumes support multiple concurrent mounts
+        if volume.access_modes.contains(&AccessMode::ReadWriteMany) {
+            return Ok(true);
+        }
+        
+        // Shared volumes can be mounted multiple times with appropriate access controls
+        if volume.volume_type == VolumeType::Shared {
+            return Ok(true);
+        }
+        
+        // Allow multiple read-only mounts of any volume (useful for monitoring, backups, etc.)
+        if is_readonly {
+            return Ok(true);
+        }
+        
+        // Check if volume has replication enabled (replicated volumes are safer for multiple mounts)
+        let is_replicated = self.is_volume_replicated(volume).await?;
+        if is_replicated {
+            tracing::info!("Allowing multiple mounts for replicated volume {}", volume.id);
+            return Ok(true);
+        }
+        
+        // ReadWriteOnce volumes with persistent type generally don't support multiple mounts
+        // unless they're specifically designed for it
+        if volume.access_modes.contains(&AccessMode::ReadWriteOnce) && 
+           volume.volume_type == VolumeType::Persistent {
+            return Ok(false);
+        }
+        
+        // Default to allowing multiple mounts (can be made more restrictive as needed)
+        Ok(true)
+    }
+    
+    /// Check if a volume is replicated
+    async fn is_volume_replicated(&self, volume: &Volume) -> Result<bool> {
+        // Check storage class parameters for replication
+        if let Some(storage_class) = self.galleonfs.get_storage_class(&volume.storage_class).await? {
+            if let Some(replication) = storage_class.parameters.get("replication") {
+                if let Ok(replica_count) = replication.parse::<i32>() {
+                    return Ok(replica_count > 1);
+                }
+            }
+            
+            // Check for distributed storage classes
+            if storage_class.provisioner.contains("distributed") {
+                return Ok(true);
+            }
+        }
+        
+        // Check if volume is in a replicated storage pool
+        // This would require additional metadata tracking, but for now we'll use heuristics
+        
+        // Assume encrypted storage is replicated by default (as per our storage class setup)
+        if volume.storage_class.contains("encrypted") || 
+           volume.storage_class.contains("distributed") ||
+           volume.storage_class.contains("replicated") {
+            return Ok(true);
+        }
+        
+        Ok(false)
     }
 
     /// Create volume interface at mount point

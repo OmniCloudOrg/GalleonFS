@@ -180,6 +180,110 @@ let qos_policy = QoSPolicy {
 };
 ```
 
+## Volume Mounting
+
+GalleonFS provides a production-ready volume mounting system that allows each volume to be individually mounted at separate paths, enabling applications to access volume data through standard filesystem operations.
+
+### Individual Volume Mounting
+
+Each volume can be mounted at its own path:
+
+```bash
+# Start GalleonFS with mount capabilities
+./galleonfs --mount-point /mnt/galleonfs
+
+# Each volume appears as a separate mount point
+/mnt/galleonfs/
+├── web-server/          # Individual volume mount point
+│   ├── data            # Volume data file
+│   ├── README.txt      # Volume information
+│   └── .galleonfs_metadata
+├── database/           # Another volume mount point
+│   ├── data
+│   ├── README.txt
+│   └── .galleonfs_metadata
+└── cache/              # Third volume mount point
+    ├── data
+    ├── README.txt
+    └── .galleonfs_metadata
+```
+
+### Volume Operations Through Filesystem
+
+Once mounted, applications can use standard filesystem operations:
+
+```bash
+# Write data to a volume
+echo "Hello GalleonFS!" > /mnt/galleonfs/web-server/data
+
+# Read data from a volume  
+cat /mnt/galleonfs/database/data
+
+# Copy files to volumes
+cp myapp.conf /mnt/galleonfs/web-server/data
+
+# Stream large data
+dd if=large-file.bin of=/mnt/galleonfs/database/data bs=1M
+```
+
+### Programmatic Volume Access
+
+```rust
+use galleonfs::volume_mount::{VolumeMountManager, GalleonVolumeFile};
+use std::path::PathBuf;
+
+// Create mount manager
+let mount_manager = galleonfs.create_mount_manager();
+
+// Mount a volume at a specific path
+let mount_id = mount_manager.mount_volume(
+    volume_id,
+    PathBuf::from("/app/data"),
+    vec!["rw".to_string(), "sync".to_string()]
+).await?;
+
+// Open volume file for operations
+let mut volume_file = mount_manager
+    .open_volume_file(&PathBuf::from("/app/data"))
+    .await?;
+
+// Read/write data directly
+let mut buffer = vec![0; 1024];
+let bytes_read = volume_file.read(&mut buffer).await?;
+volume_file.write(b"application data").await?;
+volume_file.seek(std::io::SeekFrom::Start(0))?;
+
+// Unmount when done
+mount_manager.unmount_volume(mount_id).await?;
+```
+
+### Multiple Concurrent Mounts
+
+The same volume can be mounted multiple times for shared access:
+
+```rust
+// Mount volume for primary application (read-write)
+let primary_mount = mount_manager.mount_volume(
+    volume_id,
+    PathBuf::from("/app/primary"),
+    vec!["rw".to_string()]
+).await?;
+
+// Mount same volume read-only for monitoring
+let readonly_mount = mount_manager.mount_volume(
+    volume_id,
+    PathBuf::from("/app/readonly"), 
+    vec!["ro".to_string()]
+).await?;
+
+// List all mounts
+let active_mounts = mount_manager.list_mounts().await;
+for mount in active_mounts {
+    println!("Volume {} mounted at {}", 
+             mount.volume_id, mount.mount_point.display());
+}
+```
+
 ## API Examples
 
 ### Volume Operations
@@ -298,6 +402,7 @@ galleonfs/
 │   ├── lib.rs           # Core types and GalleonFS struct
 │   ├── storage.rs       # Storage engine implementation
 │   ├── volume.rs        # Volume management  
+│   ├── volume_mount.rs  # Volume mounting system
 │   ├── snapshot.rs      # Snapshot operations
 │   ├── backup.rs        # Backup and recovery
 │   ├── migration.rs     # Volume migration
@@ -305,6 +410,8 @@ galleonfs/
 │   ├── monitoring.rs    # Performance monitoring
 │   ├── security.rs      # Encryption and access control
 │   ├── qos.rs          # Quality of Service policies
+│   ├── fuse_fs.rs      # FUSE filesystem (Linux/macOS)
+│   ├── virtual_fs.rs   # Virtual filesystem (Windows)
 │   └── main.rs         # CLI application
 ├── tests/
 │   └── integration_tests.rs
