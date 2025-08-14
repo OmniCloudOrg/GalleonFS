@@ -68,9 +68,18 @@ impl BackupManager {
         // Create snapshot first for consistency
         let snapshot = self.storage_engine.create_snapshot(volume_id, &format!("backup-{}", backup.id)).await?;
 
-        // For simplicity, we'll backup the entire volume
-        // In a real implementation, this would be optimized based on strategy
-        let backup_data = self.read_volume_data(volume_id, &volume).await?;
+        // Optimize backup based on strategy
+        let backup_data = match strategy {
+            BackupStrategy::Full => {
+                self.read_volume_data(volume_id, &volume).await?
+            }
+            BackupStrategy::Incremental => {
+                self.read_incremental_data(volume_id, &volume, policy_name).await?
+            }
+            BackupStrategy::Differential => {
+                self.read_differential_data(volume_id, &volume, policy_name).await?
+            }
+        };
         self.backup_repository.store_backup(&backup, &backup_data).await?;
 
         let mut completed_backup = backup.clone();
