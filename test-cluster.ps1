@@ -217,11 +217,13 @@ function Main {
         # Step 1: Start Node 1 (creates cluster)
         Write-Info "Step 1: Starting Node 1 (creates cluster)"
         
+        $mountPath1 = "$NODE1_STORAGE\mount1"
         $node1Args = @(
             "-d",
             "--storage-path", $NODE1_STORAGE,
             "--bind-address", $NODE1_BIND,
-            "--ipc-address", $NODE1_IPC
+            "--ipc-address", $NODE1_IPC,
+            "--mount-point", $mountPath1
         )
         
         $Global:Node1Process = Start-Process -FilePath $binaryPath -ArgumentList $node1Args -PassThru -NoNewWindow -RedirectStandardOutput "node1.log" -RedirectStandardError "node1_error.log"
@@ -236,12 +238,14 @@ function Main {
         # Step 2: Start Node 2 (joins cluster)
         Write-Info "Step 2: Starting Node 2 (joins cluster)"
         
+        $mountPath2 = "$NODE2_STORAGE\mount2"
         $node2Args = @(
             "-d",
             "--storage-path", $NODE2_STORAGE,
             "--bind-address", $NODE2_BIND,
             "--ipc-address", $NODE2_IPC,
-            "--peer-addresses", $NODE1_BIND
+            "--peer-addresses", $NODE1_BIND,
+            "--mount-point", $mountPath2
         )
         
         $Global:Node2Process = Start-Process -FilePath $binaryPath -ArgumentList $node2Args -PassThru -NoNewWindow -RedirectStandardOutput "node2.log" -RedirectStandardError "node2_error.log"
@@ -272,17 +276,31 @@ function Main {
         Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments $createArgs -Description "Creating replicated volume"
         Write-Host ""
         
-        # Step 5: List volumes
+
+        # Step 5: List volumes and parse volume ID
         Write-Info "Step 5: Listing volumes"
         Write-Host "====================="
-        Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE1_IPC, "volume", "list") -Description "Listing volumes from Node 1"
+        $listOutput = & $binaryPath --daemon-address $NODE1_IPC volume list
+        Write-Host $listOutput
+    $volumeId = ($listOutput | Select-String -Pattern '^[0-9a-fA-F-]{36} ' | ForEach-Object { $_.Line }) -replace '\s+', ' ' | ForEach-Object { ($_ -split ' ')[0] }
+        if (-not $volumeId) {
+            Write-Error "Failed to parse volume ID from volume list output"
+            throw "Volume ID not found"
+        }
+        Write-Info "Parsed volume ID: $volumeId"
+
+        # Step 6: Mount volume on Node 1
+        Write-Info "Step 6: Mounting volume on Node 1"
+        $mountPath1 = "$NODE1_STORAGE\mount1"
+        New-Item -ItemType Directory -Force -Path $mountPath1 | Out-Null
+    Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE1_IPC, "volume", "mount", $volumeId, $mountPath1, "--options", "rw") -Description "Mounting volume on Node 1"
+
+        # Step 7: Mount volume on Node 2
+        Write-Info "Step 7: Mounting volume on Node 2"
+        $mountPath2 = "$NODE2_STORAGE\mount2"
+        New-Item -ItemType Directory -Force -Path $mountPath2 | Out-Null
+    Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE2_IPC, "volume", "mount", $volumeId, $mountPath2, "--options", "rw") -Description "Mounting volume on Node 2"
         Write-Host ""
-        
-        # Step 6: Get volume details
-        # Write-Info "Step 6: Getting volume details"
-        # Write-Host "============================="
-        # Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE1_IPC, "volume", "get", $VOLUME_NAME) -Description "Getting volume details"
-        # Write-Host ""
         
         # Step 7: Check cluster status from Node 2
         Write-Info "Step 7: Checking cluster status from Node 2"
