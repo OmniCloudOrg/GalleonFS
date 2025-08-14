@@ -130,39 +130,45 @@ main() {
     
     # Step 1: Start Node 1 (creates cluster)
     log_info "Step 1: Starting Node 1 (creates cluster)"
+    MOUNT_PATH1="$NODE1_STORAGE/mount1"
+    mkdir -p "$MOUNT_PATH1"
     ./target/release/galleonfs -d \
         --storage-path "$NODE1_STORAGE" \
         --bind-address "$NODE1_BIND" \
         --ipc-address "$NODE1_IPC" \
+        --mount-point "$MOUNT_PATH1" \
         > node1.log 2>&1 &
     NODE1_PID=$!
     log_info "Node 1 started with PID: $NODE1_PID"
-    
+
     # Wait for Node 1 to be ready
     wait_for_service "$NODE1_IPC" "Node 1 IPC service"
     sleep 2  # Give it a moment to fully initialize
-    
+
     # Step 2: Start Node 2 (joins cluster)
     log_info "Step 2: Starting Node 2 (joins cluster)"
+    MOUNT_PATH2="$NODE2_STORAGE/mount2"
+    mkdir -p "$MOUNT_PATH2"
     ./target/release/galleonfs -d \
         --storage-path "$NODE2_STORAGE" \
         --bind-address "$NODE2_BIND" \
         --ipc-address "$NODE2_IPC" \
         --peer-addresses "$NODE1_BIND" \
+        --mount-point "$MOUNT_PATH2" \
         > node2.log 2>&1 &
     NODE2_PID=$!
     log_info "Node 2 started with PID: $NODE2_PID"
-    
+
     # Wait for Node 2 to be ready
     wait_for_service "$NODE2_IPC" "Node 2 IPC service"
     sleep 3  # Give cluster time to form
-    
+
     # Step 3: Check cluster status
     log_info "Step 3: Checking cluster status"
     echo "=========================="
     ./target/release/galleonfs --daemon-address "$NODE1_IPC" cluster status || log_warning "Failed to get cluster status from Node 1"
     echo
-    
+
     # Step 4: Create a replicated volume
     log_info "Step 4: Creating replicated volume"
     echo "================================="
@@ -171,33 +177,40 @@ main() {
         --size "$VOLUME_SIZE" \
         --replicas $REPLICAS
     echo
-    
-    # Step 5: List volumes
+
+    # Step 5: List volumes and parse volume ID
     log_info "Step 5: Listing volumes"
     echo "====================="
+    VOLUME_ID=$(./target/release/galleonfs --daemon-address "$NODE1_IPC" volume list | grep -E '^[0-9a-fA-F-]{36} ' | awk '{print $1}' | head -n1)
     ./target/release/galleonfs --daemon-address "$NODE1_IPC" volume list
+    echo "[INFO] Parsed volume ID: $VOLUME_ID"
+    if [ -z "$VOLUME_ID" ]; then
+        log_error "Failed to parse volume ID from volume list output"; exit 1
+    fi
+
+    # Step 6: Mount volume on Node 1
+    log_info "Step 6: Mounting volume on Node 1"
+    ./target/release/galleonfs --daemon-address "$NODE1_IPC" volume mount "$VOLUME_ID" "$MOUNT_PATH1" --options rw
+
+    # Step 7: Mount volume on Node 2
+    log_info "Step 7: Mounting volume on Node 2"
+    ./target/release/galleonfs --daemon-address "$NODE2_IPC" volume mount "$VOLUME_ID" "$MOUNT_PATH2" --options rw
     echo
-    
-    # Step 6: Get volume details
-    log_info "Step 6: Getting volume details"
-    echo "============================="
-    ./target/release/galleonfs --daemon-address "$NODE1_IPC" volume get "$VOLUME_NAME"
-    echo
-    
-    # Step 7: Check cluster status from Node 2
-    log_info "Step 7: Checking cluster status from Node 2"
+
+    # Step 8: Check cluster status from Node 2
+    log_info "Step 8: Checking cluster status from Node 2"
     echo "==========================================="
     ./target/release/galleonfs --daemon-address "$NODE2_IPC" cluster status || log_warning "Failed to get cluster status from Node 2"
     echo
-    
-    # Step 8: List volumes from Node 2
-    log_info "Step 8: Listing volumes from Node 2"
+
+    # Step 9: List volumes from Node 2
+    log_info "Step 9: Listing volumes from Node 2"
     echo "=================================="
     ./target/release/galleonfs --daemon-address "$NODE2_IPC" volume list
     echo
-    
-    # Step 9: Show daemon status
-    log_info "Step 9: Checking daemon status"
+
+    # Step 10: Show daemon status
+    log_info "Step 10: Checking daemon status"
     echo "============================="
     log_info "Node 1 daemon status:"
     ./target/release/galleonfs --daemon-address "$NODE1_IPC" daemon status || log_warning "Failed to get daemon status from Node 1"
@@ -205,10 +218,10 @@ main() {
     log_info "Node 2 daemon status:"
     ./target/release/galleonfs --daemon-address "$NODE2_IPC" daemon status || log_warning "Failed to get daemon status from Node 2"
     echo
-    
+
     log_success "Two-node cluster test completed successfully!"
     log_info "Check node1.log and node2.log for daemon output"
-    
+
     # Wait a moment before cleanup
     log_info "Test completed. Cleaning up in 5 seconds..."
     sleep 5
