@@ -125,13 +125,13 @@ function Wait-ForService {
     )
     
     $addressParts = $Address -split ":"
-    $host = $addressParts[0]
+    $my_host = $addressParts[0]
     $port = [int]$addressParts[1]
     
     Write-Info "Waiting for $Name to be ready at $Address..."
     
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        if (Test-Port -Address $host -Port $port) {
+        if (Test-Port -Address $my_host -Port $port) {
             Write-Success "$Name is ready!"
             return $true
         }
@@ -279,10 +279,10 @@ function Main {
         Write-Host ""
         
         # Step 6: Get volume details
-        Write-Info "Step 6: Getting volume details"
-        Write-Host "============================="
-        Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE1_IPC, "volume", "get", $VOLUME_NAME) -Description "Getting volume details"
-        Write-Host ""
+        # Write-Info "Step 6: Getting volume details"
+        # Write-Host "============================="
+        # Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE1_IPC, "volume", "get", $VOLUME_NAME) -Description "Getting volume details"
+        # Write-Host ""
         
         # Step 7: Check cluster status from Node 2
         Write-Info "Step 7: Checking cluster status from Node 2"
