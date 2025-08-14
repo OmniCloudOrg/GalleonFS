@@ -159,7 +159,8 @@ impl ReplicationService {
                         ReplicationMessage::CreateVolume(volume) => {
                             info!("Received volume creation request for volume {}", volume.id);
                             let mut volume_copy = volume.clone();
-                            let success = storage_engine.create_volume(&mut volume_copy).await.is_ok();
+                            let create_result = storage_engine.create_volume(&mut volume_copy).await;
+                            let success = create_result.is_ok();
 
                             let ack = ReplicationRequest::new(ReplicationMessage::VolumeCreated {
                                 volume_id: volume.id,
