@@ -1,4 +1,4 @@
-# GalleonFS
+![Logo](branding\logo-wide-transparent.svg)
 
 A high-performance, distributed, network-replicated storage system built in Rust. GalleonFS provides enterprise-grade volume management with advanced features like snapshots, backup/recovery, migration, and comprehensive monitoring.
 
