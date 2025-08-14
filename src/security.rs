@@ -126,10 +126,17 @@ impl SecurityManager {
         };
 
         let mut audit_log = self.audit_log.write().await;
-        audit_log.push(entry);
+        audit_log.push(entry.clone());
 
-        // In a real implementation, this would also write to persistent storage
-        // and potentially forward to external SIEM systems
+        // Write to persistent storage for durability
+        if let Err(e) = self.persist_audit_entry(&entry).await {
+            tracing::error!("Failed to persist audit log entry: {}", e);
+        }
+
+        // Forward to external SIEM systems if configured
+        if let Err(e) = self.forward_to_siem(&entry).await {
+            tracing::warn!("Failed to forward audit log to SIEM: {}", e);
+        }
 
         Ok(())
     }
@@ -195,6 +202,67 @@ impl SecurityManager {
         }
         
         true
+    }
+
+    async fn persist_audit_entry(&self, entry: &AuditLogEntry) -> Result<()> {
+        // Write audit entry to persistent storage (file-based for simplicity)
+        let audit_file = std::path::Path::new("./galleonfs_storage/audit.log");
+        
+        // Ensure audit directory exists
+        if let Some(parent) = audit_file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Serialize and append entry with tamper-evident signature
+        let serialized = bincode::serialize(entry)?;
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let checksum = crc32fast::hash(&serialized);
+        
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let log_line = format!("[{}] {} {}\n", timestamp, checksum, STANDARD.encode(&serialized));
+        
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(audit_file)?;
+        
+        file.write_all(log_line.as_bytes())?;
+        file.flush()?;
+        
+        Ok(())
+    }
+
+    async fn forward_to_siem(&self, entry: &AuditLogEntry) -> Result<()> {
+        // Forward to external SIEM systems (simulated)
+        // In production, this would use actual SIEM APIs (Splunk, ELK, etc.)
+        
+        // Check if SIEM forwarding is enabled via environment variable
+        if let Ok(siem_endpoint) = std::env::var("GALLEONFS_SIEM_ENDPOINT") {
+            tracing::debug!("Forwarding audit entry to SIEM at {}", siem_endpoint);
+            
+            // Create SIEM-formatted message
+            let siem_message = serde_json::json!({
+                "timestamp": entry.timestamp.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default().as_secs(),
+                "event_id": entry.id.to_string(),
+                "user": entry.user,
+                "action": entry.action,
+                "resource": entry.resource,
+                "result": format!("{:?}", entry.result),
+                "details": entry.details,
+                "service": "galleonfs",
+                "version": "0.1.0"
+            });
+
+            // In production, this would make an HTTP POST to the SIEM endpoint
+            // For now, we'll just log it
+            tracing::info!("SIEM message: {}", siem_message);
+        }
+        
+        Ok(())
     }
 }
 

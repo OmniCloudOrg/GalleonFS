@@ -224,9 +224,84 @@ impl MigrationManager {
         if let Some(migration) = migrations.get_mut(&migration_id) {
             if migration.state == MigrationState::ReadyForCutover {
                 migration.state = MigrationState::CuttingOver;
-                // In a real implementation, this would trigger the final cutover process
+                
+                // Execute the final cutover process
+                let storage_engine = self.storage_engine.clone();
+                let migrations_ref = self.migrations.clone();
+                
+                tokio::spawn(async move {
+                    if let Err(e) = Self::execute_cutover(storage_engine, migrations_ref.clone(), migration_id).await {
+                        tracing::error!("Cutover failed: {}", e);
+                        let mut migrations = migrations_ref.write().await;
+                        if let Some(migration) = migrations.get_mut(&migration_id) {
+                            migration.state = MigrationState::Failed;
+                        }
+                    } else {
+                        let mut migrations = migrations_ref.write().await;
+                        if let Some(migration) = migrations.get_mut(&migration_id) {
+                            migration.state = MigrationState::Completed;
+                            migration.progress_percent = 100;
+                        }
+                    }
+                });
             }
         }
         Ok(())
+    }
+
+    async fn execute_cutover(
+        storage_engine: Arc<dyn StorageEngine>,
+        migrations: Arc<RwLock<HashMap<Uuid, Migration>>>,
+        migration_id: Uuid
+    ) -> Result<()> {
+        // Get migration details
+        let migration = {
+            let migrations_guard = migrations.read().await;
+            migrations_guard.get(&migration_id).cloned()
+                .ok_or_else(|| anyhow::anyhow!("Migration not found"))?
+        };
+
+        // Step 1: Perform final synchronization
+        tracing::info!("Starting final synchronization for migration {}", migration_id);
+        Self::perform_final_sync(&storage_engine, &migration).await?;
+
+        // Step 2: Freeze source volume I/O (simulate brief pause)
+        tracing::info!("Freezing source volume I/O for migration {}", migration_id);
+        storage_engine.update_volume_state(migration.source_volume_id, VolumeState::Migrating).await?;
+
+        // Step 3: Apply any remaining changes
+        tracing::info!("Applying final changes for migration {}", migration_id);
+        Self::apply_final_changes(&storage_engine, &migration).await?;
+
+        // Step 4: Update volume metadata to point to new location
+        tracing::info!("Updating volume references for migration {}", migration_id);
+        Self::update_volume_references(&storage_engine, &migration).await?;
+
+        // Step 5: Resume I/O on migrated volume
+        tracing::info!("Resuming I/O on migrated volume for migration {}", migration_id);
+        storage_engine.update_volume_state(migration.source_volume_id, VolumeState::Available).await?;
+
+        tracing::info!("Cutover completed successfully for migration {}", migration_id);
+        Ok(())
+    }
+
+    async fn perform_final_sync(storage_engine: &Arc<dyn StorageEngine>, migration: &Migration) -> Result<()> {
+        // In production, this would synchronize any remaining changes
+        tracing::debug!("Performing final sync for volume {}", migration.source_volume_id);
+        storage_engine.sync_volume(migration.source_volume_id).await
+    }
+
+    async fn apply_final_changes(storage_engine: &Arc<dyn StorageEngine>, migration: &Migration) -> Result<()> {
+        // In production, this would apply any changes that occurred during the final sync
+        tracing::debug!("Applying final changes for volume {}", migration.source_volume_id);
+        storage_engine.flush_volume(migration.source_volume_id).await
+    }
+
+    async fn update_volume_references(storage_engine: &Arc<dyn StorageEngine>, migration: &Migration) -> Result<()> {
+        // In production, this would update all references to point to the new volume location
+        tracing::debug!("Updating volume references for migration {}", migration.name);
+        
+        // Transform the volume to the target storage class
+        storage_engine.transform_volume(migration.source_volume_id, &migration.target_spec.storage_class).await
     }
 }

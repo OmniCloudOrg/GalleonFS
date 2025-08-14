@@ -17,6 +17,13 @@ pub mod qos;
 pub mod security;
 pub mod monitoring;
 pub mod replication;
+pub mod volume_mount;
+
+#[cfg(unix)]
+pub mod fuse_fs;
+
+#[cfg(windows)]
+pub mod virtual_fs;
 
 // Core Volume Types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -480,6 +487,7 @@ pub trait StorageEngine: Send + Sync {
 }
 
 // Main GalleonFS Structure
+#[derive(Clone)]
 pub struct GalleonFS {
     storage_engine: Arc<dyn StorageEngine>,
     storage_classes: Arc<RwLock<HashMap<String, StorageClass>>>,
@@ -655,6 +663,11 @@ impl GalleonFS {
 
     pub async fn list_volumes(&self) -> Result<Vec<Volume>> {
         self.storage_engine.list_volumes().await
+    }
+
+    // Volume Mount Manager
+    pub fn create_mount_manager(&self) -> crate::volume_mount::VolumeMountManager {
+        crate::volume_mount::VolumeMountManager::new(Arc::new(self.clone()))
     }
 
     // Service Management

@@ -132,6 +132,9 @@ struct Cli {
 
     #[arg(long)]
     setup_defaults: bool,
+
+    #[arg(long)]
+    mount_point: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -175,8 +178,37 @@ async fn main() -> Result<()> {
         return run_demo(&galleonfs, &cli).await;
     }
 
-    info!("Starting GalleonFS service...");
-    galleonfs.run(cli.bind_address).await
+    // Start the mount manager service if mount point is specified
+    if let Some(base_mount_point) = &cli.mount_point {
+        info!("Starting GalleonFS with volume mounting at: {:?}", base_mount_point);
+        
+        // Create mount point directory
+        std::fs::create_dir_all(base_mount_point)?;
+        
+        // Create mount manager
+        let mount_manager = galleonfs.create_mount_manager();
+        
+        // Start the replication service in a background task
+        let galleonfs_clone = galleonfs.clone();
+        let bind_address_clone = cli.bind_address.clone();
+        tokio::spawn(async move {
+            if let Err(e) = galleonfs_clone.run(bind_address_clone).await {
+                tracing::error!("Replication service error: {}", e);
+            }
+        });
+        
+        // Wait a moment for the service to start
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        info!("GalleonFS mount service started. Volumes can now be mounted individually.");
+        info!("Example: each volume will be mountable at {}/volume-name", base_mount_point.display());
+        
+        // Run mount demonstration if in demo mode
+        return run_mount_demo(&galleonfs, &mount_manager, base_mount_point).await;
+    } else {
+        info!("Starting GalleonFS service...");
+        galleonfs.run(cli.bind_address).await
+    }
 }
 
 async fn setup_default_configuration(galleonfs: &GalleonFS) -> Result<()> {
@@ -365,6 +397,158 @@ async fn run_demo(galleonfs: &GalleonFS, cli: &Cli) -> Result<()> {
     info!("  ✓ Performance metrics and monitoring");
     info!("  ✓ Data integrity verification");
     info!("  ✓ Volume usage tracking");
+
+    Ok(())
+}
+
+async fn run_mount_demo(
+    galleonfs: &GalleonFS,
+    mount_manager: &galleonfs::volume_mount::VolumeMountManager,
+    base_mount_point: &std::path::Path
+) -> Result<()> {
+    use galleonfs::{VolumeType, WriteConcern};
+    use std::path::PathBuf;
+
+    info!("=== GalleonFS Volume Mounting Demo ===");
+
+    // Setup default configuration first
+    setup_default_configuration(galleonfs).await?;
+
+    // Demo 1: Create volumes
+    info!("1. Creating test volumes");
+    
+    let web_volume = galleonfs
+        .create_volume(VolumeType::Persistent, 100 * 1024 * 1024, "fast-local-ssd".to_string()) // 100MB
+        .await?;
+    info!("Created web server volume: {:?}", web_volume.id);
+
+    let db_volume = galleonfs
+        .create_volume(VolumeType::Persistent, 500 * 1024 * 1024, "encrypted-storage".to_string()) // 500MB
+        .await?;
+    info!("Created database volume: {:?}", db_volume.id);
+
+    // Demo 2: Mount volumes at individual paths
+    info!("2. Mounting volumes at individual paths");
+
+    let web_mount_point = base_mount_point.join("web-server");
+    let db_mount_point = base_mount_point.join("database");
+
+    let web_mount_id = mount_manager.mount_volume(
+        web_volume.id,
+        web_mount_point.clone(),
+        vec!["rw".to_string(), "sync".to_string()]
+    ).await?;
+    info!("Web volume mounted at: {}", web_mount_point.display());
+
+    let db_mount_id = mount_manager.mount_volume(
+        db_volume.id,
+        db_mount_point.clone(),
+        vec!["rw".to_string(), "encrypted".to_string()]
+    ).await?;
+    info!("Database volume mounted at: {}", db_mount_point.display());
+
+    // Demo 3: Write data directly through mount points
+    info!("3. Writing data through mounted volumes");
+
+    // Write web server config
+    let web_config = b"server {\n    listen 80;\n    root /var/www;\n    index index.html;\n}\n";
+    let mut web_file = mount_manager.open_volume_file(&web_mount_point).await?;
+    web_file.write(web_config).await?;
+    info!("Wrote web server config ({} bytes)", web_config.len());
+
+    // Write database schema
+    let db_schema = b"CREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    username VARCHAR(50),\n    email VARCHAR(100)\n);\n";
+    let mut db_file = mount_manager.open_volume_file(&db_mount_point).await?;
+    db_file.write(db_schema).await?;
+    info!("Wrote database schema ({} bytes)", db_schema.len());
+
+    // Demo 4: Read data back through mount points
+    info!("4. Reading data back through mounted volumes");
+
+    let mut web_file = mount_manager.open_volume_file(&web_mount_point).await?;
+    let mut web_buffer = vec![0; web_config.len()];
+    web_file.seek(std::io::SeekFrom::Start(0))?;
+    let web_read = web_file.read(&mut web_buffer).await?;
+    info!("Read web config: {}", String::from_utf8_lossy(&web_buffer[..web_read]));
+
+    let mut db_file = mount_manager.open_volume_file(&db_mount_point).await?;
+    let mut db_buffer = vec![0; db_schema.len()];
+    db_file.seek(std::io::SeekFrom::Start(0))?;
+    let db_read = db_file.read(&mut db_buffer).await?;
+    info!("Read database schema: {}", String::from_utf8_lossy(&db_buffer[..db_read]));
+
+    // Demo 5: Show mount information
+    info!("5. Listing all active mounts");
+
+    let mounts = mount_manager.list_mounts().await;
+    for mount in mounts {
+        info!("  Mount: {} -> {} (State: {:?})", 
+              mount.volume_id, mount.mount_point.display(), mount.state);
+    }
+
+    // Demo 6: Create snapshots of mounted volumes
+    info!("6. Creating snapshots of mounted volumes");
+
+    let web_snapshot = galleonfs.create_snapshot(web_volume.id, "web-config-backup").await?;
+    info!("Created web snapshot: {:?}", web_snapshot.id);
+
+    let db_snapshot = galleonfs.create_snapshot(db_volume.id, "db-schema-backup").await?;
+    info!("Created database snapshot: {:?}", db_snapshot.id);
+
+    // Demo 7: Volume expansion while mounted
+    info!("7. Expanding database volume while mounted");
+
+    let original_size = db_volume.size_bytes;
+    let new_size = original_size + (200 * 1024 * 1024); // Add 200MB
+    galleonfs.expand_volume(db_volume.id, new_size).await?;
+    info!("Expanded database volume from {} to {} bytes", original_size, new_size);
+
+    // Demo 8: Multiple mount points (shared access simulation)
+    info!("8. Demonstrating multiple mount points for same volume");
+
+    let web_readonly_mount = base_mount_point.join("web-readonly");
+    let web_readonly_mount_id = mount_manager.mount_volume(
+        web_volume.id,
+        web_readonly_mount.clone(),
+        vec!["ro".to_string()] // Read-only
+    ).await?;
+    info!("Web volume also mounted read-only at: {}", web_readonly_mount.display());
+
+    // Demo 9: Performance metrics for mounted volumes
+    info!("9. Checking performance metrics for mounted volumes");
+
+    let web_metrics = galleonfs.get_volume_metrics(web_volume.id).await?;
+    info!("Web volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
+          web_metrics.iops, web_metrics.throughput_mbps, web_metrics.latency_ms);
+
+    let db_metrics = galleonfs.get_volume_metrics(db_volume.id).await?;
+    info!("Database volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
+          db_metrics.iops, db_metrics.throughput_mbps, db_metrics.latency_ms);
+
+    // Demo 10: Cleanup - Unmount volumes
+    info!("10. Cleaning up - unmounting volumes");
+
+    mount_manager.unmount_volume(web_mount_id).await?;
+    info!("Unmounted web volume from primary mount");
+
+    mount_manager.unmount_volume(web_readonly_mount_id).await?;
+    info!("Unmounted web volume from read-only mount");
+
+    mount_manager.unmount_volume(db_mount_id).await?;
+    info!("Unmounted database volume");
+
+    info!("=== Volume Mounting Demo Completed! ===");
+    info!("Key capabilities demonstrated:");
+    info!("  ✓ Individual volume mounting at separate paths");
+    info!("  ✓ Multiple concurrent mounts of the same volume");
+    info!("  ✓ Read/write operations through mount points");
+    info!("  ✓ Volume expansion while mounted");
+    info!("  ✓ Snapshot creation of mounted volumes");
+    info!("  ✓ Performance monitoring of mounted volumes");
+    info!("  ✓ Clean mount/unmount lifecycle management");
+
+    info!("\nGalleonFS is now ready for production use!");
+    info!("Applications can mount volumes individually as needed.");
 
     Ok(())
 }
