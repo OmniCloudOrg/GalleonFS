@@ -330,7 +330,8 @@ impl GalleonClient {
                 if !force {
                     println!("Are you sure you want to delete volume '{}'? [y/N]", id);
                     let mut input = String::new();
-                    std::io::stdin().read_line(&mut input)?;
+                    let mut stdin = io::BufReader::new(io::stdin());
+                    stdin.read_line(&mut input).await?;
                     if !input.trim().to_lowercase().starts_with('y') {
                         println!("Volume deletion cancelled.");
                         return Ok(());
