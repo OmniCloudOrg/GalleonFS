@@ -104,10 +104,6 @@ struct MainCli {
     /// Legacy test replication support
     #[arg(long)]
     test_replication: bool,
-
-    /// Address of daemon for CLI mode
-    #[arg(long, default_value = "127.0.0.1:8090")]
-    daemon_address: String,
 }
 
 #[tokio::main]
@@ -116,41 +112,56 @@ async fn main() -> Result<()> {
         .with_max_level(Level::INFO)
         .init();
 
-    let main_cli = MainCli::parse();
+    let args: Vec<String> = std::env::args().collect();
+    
+    // Check if this is a daemon invocation (has -d or --daemon)
+    let is_daemon = args.iter().any(|arg| arg == "-d" || arg == "--daemon");
+    
+    // Check if this is a legacy mode invocation
+    let is_legacy = args.iter().any(|arg| {
+        arg == "--demo-mode" || arg == "--setup-defaults" || arg == "--test-replication"
+    });
+    
+    // Check if this is a CLI subcommand invocation
+    let is_cli_subcommand = has_subcommand(&args);
 
-    // Handle legacy modes first
-    if main_cli.demo_mode || main_cli.setup_defaults || main_cli.test_replication {
-        return run_legacy_mode(main_cli).await;
-    }
-
-    if main_cli.daemon {
-        // Run in daemon mode
-        run_daemon_mode(main_cli).await
-    } else {
-        // Check if this is a CLI invocation with subcommands
-        let args: Vec<String> = std::env::args().collect();
+    if is_daemon || is_legacy {
+        // Parse with MainCli for daemon/legacy modes
+        let main_cli = MainCli::parse();
         
-        // If no additional arguments (besides the parsed ones), show help
-        if args.len() <= 1 || !has_subcommand(&args) {
-            eprintln!("GalleonFS - Distributed Filesystem");
-            eprintln!("");
-            eprintln!("USAGE:");
-            eprintln!("    galleonfs -d [OPTIONS]         # Run daemon mode");
-            eprintln!("    galleonfs volume <COMMAND>     # Volume management");
-            eprintln!("    galleonfs cluster <COMMAND>    # Cluster management");
-            eprintln!("    galleonfs daemon <COMMAND>     # Daemon management");
-            eprintln!("");
-            eprintln!("For more help, try:");
-            eprintln!("    galleonfs -h                   # Show all options");
-            eprintln!("    galleonfs volume -h            # Volume commands");
-            eprintln!("    galleonfs cluster -h           # Cluster commands");
-            eprintln!("    galleonfs daemon -h            # Daemon commands");
-            return Ok(());
+        // Handle legacy modes first
+        if main_cli.demo_mode || main_cli.setup_defaults || main_cli.test_replication {
+            return run_legacy_mode(main_cli).await;
         }
 
-        // Run in CLI mode
-        run_cli_mode(main_cli).await
+        if main_cli.daemon {
+            // Run in daemon mode
+            return run_daemon_mode(main_cli).await;
+        }
+    } else if is_cli_subcommand {
+        // Parse with GalleonCli for CLI subcommands
+        let galleon_cli = GalleonCli::try_parse_from(&args)?;
+        let client = GalleonClient::new("127.0.0.1:8090".to_string()); // Default daemon address
+        return client.execute(galleon_cli).await;
+    } else {
+        // No subcommands or daemon flag, show help
+        eprintln!("GalleonFS - Distributed Filesystem");
+        eprintln!("");
+        eprintln!("USAGE:");
+        eprintln!("    galleonfs -d [OPTIONS]         # Run daemon mode");
+        eprintln!("    galleonfs volume <COMMAND>     # Volume management");
+        eprintln!("    galleonfs cluster <COMMAND>    # Cluster management");
+        eprintln!("    galleonfs daemon <COMMAND>     # Daemon management");
+        eprintln!("");
+        eprintln!("For more help, try:");
+        eprintln!("    galleonfs -h                   # Show all options");
+        eprintln!("    galleonfs volume -h            # Volume commands");
+        eprintln!("    galleonfs cluster -h           # Cluster commands");
+        eprintln!("    galleonfs daemon -h            # Daemon commands");
+        return Ok(());
     }
+
+    Ok(())
 }
 
 /// Check if the command line arguments contain subcommands
@@ -208,15 +219,6 @@ async fn run_daemon_mode(main_cli: MainCli) -> Result<()> {
     Ok(())
 }
 
-/// Run GalleonFS in CLI mode
-async fn run_cli_mode(main_cli: MainCli) -> Result<()> {
-    // Parse CLI subcommands using the CLI module
-    let cli_args: Vec<String> = std::env::args().collect();
-    let galleon_cli = GalleonCli::try_parse_from(&cli_args)?;
-    
-    let client = GalleonClient::new(main_cli.daemon_address);
-    client.execute(galleon_cli).await
-}
 
 /// Run legacy modes for backward compatibility
 async fn run_legacy_mode(main_cli: MainCli) -> Result<()> {

@@ -298,14 +298,11 @@ impl GalleonClient {
             
             VolumeCommands::Get { id } => {
                 // Try to parse as UUID, otherwise treat as name
-                let volume_id = if let Ok(uuid) = Uuid::parse_str(&id) {
-                    uuid
+                let message = if let Ok(uuid) = Uuid::parse_str(&id) {
+                    IpcMessage::GetVolume { id: uuid }
                 } else {
-                    // TODO: Implement name lookup
-                    return Err(anyhow::anyhow!("Name-based volume lookup not yet implemented. Use volume ID."));
+                    IpcMessage::GetVolumeByName { name: id.clone() }
                 };
-                
-                let message = IpcMessage::GetVolume { id: volume_id };
                 
                 match self.send_message(message).await? {
                     IpcResponse::Volume(volume) => {
@@ -341,14 +338,11 @@ impl GalleonClient {
                 }
                 
                 // Try to parse as UUID, otherwise treat as name
-                let volume_id = if let Ok(uuid) = Uuid::parse_str(&id) {
-                    uuid
+                let message = if let Ok(uuid) = Uuid::parse_str(&id) {
+                    IpcMessage::DeleteVolume { id: uuid }
                 } else {
-                    // TODO: Implement name lookup
-                    return Err(anyhow::anyhow!("Name-based volume lookup not yet implemented. Use volume ID."));
+                    IpcMessage::DeleteVolumeByName { name: id.clone() }
                 };
-                
-                let message = IpcMessage::DeleteVolume { id: volume_id };
                 
                 match self.send_message(message).await? {
                     IpcResponse::Success => {
@@ -364,15 +358,64 @@ impl GalleonClient {
                 }
             }
             
-            // TODO: Implement mount/unmount operations
-            VolumeCommands::Mount { .. } => {
-                println!("Volume mounting is not yet implemented in CLI mode.");
-                println!("Use daemon mode with --mount-point for volume mounting.");
+            // Mount/unmount operations
+            VolumeCommands::Mount { id, path, options } => {
+                // Try to parse as UUID, otherwise get volume by name first
+                let volume_id = if let Ok(uuid) = Uuid::parse_str(&id) {
+                    uuid
+                } else {
+                    // Get volume by name to get its ID
+                    let name_message = IpcMessage::GetVolumeByName { name: id.clone() };
+                    match self.send_message(name_message).await? {
+                        IpcResponse::Volume(volume) => volume.id,
+                        IpcResponse::Error(err) => {
+                            error!("Failed to find volume '{}': {}", id, err);
+                            return Err(anyhow::anyhow!(err));
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                        }
+                    }
+                };
+                
+                let message = IpcMessage::MountVolume { 
+                    id: volume_id, 
+                    path: path.clone(), 
+                    options 
+                };
+                
+                match self.send_message(message).await? {
+                    IpcResponse::MountInfo { mount_id, volume_id, mount_path } => {
+                        println!("Volume mounted successfully:");
+                        println!("  Mount ID: {}", mount_id);
+                        println!("  Volume ID: {}", volume_id);
+                        println!("  Mount Path: {}", mount_path.display());
+                    }
+                    IpcResponse::Error(err) => {
+                        error!("Failed to mount volume: {}", err);
+                        return Err(anyhow::anyhow!(err));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                    }
+                }
             }
             
-            VolumeCommands::Unmount { .. } => {
-                println!("Volume unmounting is not yet implemented in CLI mode.");
-                println!("Use daemon mode with --mount-point for volume mounting.");
+            VolumeCommands::Unmount { target } => {
+                let message = IpcMessage::UnmountVolume { target: target.clone() };
+                
+                match self.send_message(message).await? {
+                    IpcResponse::Success => {
+                        println!("Volume unmounted successfully: {}", target);
+                    }
+                    IpcResponse::Error(err) => {
+                        error!("Failed to unmount volume: {}", err);
+                        return Err(anyhow::anyhow!(err));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                    }
+                }
             }
         }
         
@@ -426,8 +469,21 @@ impl GalleonClient {
                 }
             }
             
-            ClusterCommands::Leave { force: _ } => {
-                println!("Cluster leave operation is not yet implemented.");
+            ClusterCommands::Leave { force } => {
+                let message = IpcMessage::LeaveCluster { force };
+                
+                match self.send_message(message).await? {
+                    IpcResponse::Success => {
+                        println!("Successfully left cluster");
+                    }
+                    IpcResponse::Error(err) => {
+                        error!("Failed to leave cluster: {}", err);
+                        return Err(anyhow::anyhow!(err));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                    }
+                }
             }
             
             ClusterCommands::Peers => {
@@ -528,8 +584,20 @@ impl GalleonClient {
             }
             
             DaemonCommands::Restart => {
-                println!("Daemon restart is not yet implemented.");
-                println!("Please stop the daemon and start it manually.");
+                let message = IpcMessage::Restart;
+                
+                match self.send_message(message).await? {
+                    IpcResponse::Success => {
+                        println!("Daemon restart initiated.");
+                    }
+                    IpcResponse::Error(err) => {
+                        error!("Failed to restart daemon: {}", err);
+                        return Err(anyhow::anyhow!(err));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                    }
+                }
             }
         }
         
@@ -567,8 +635,21 @@ impl GalleonClient {
                 }
             }
             
-            StorageClassCommands::Create { config_file: _ } => {
-                println!("Storage class creation from file is not yet implemented.");
+            StorageClassCommands::Create { config_file } => {
+                let message = IpcMessage::CreateStorageClassFromFile { config_file: config_file.clone() };
+                
+                match self.send_message(message).await? {
+                    IpcResponse::Success => {
+                        println!("Storage class created successfully from file: {}", config_file.display());
+                    }
+                    IpcResponse::Error(err) => {
+                        error!("Failed to create storage class: {}", err);
+                        return Err(anyhow::anyhow!(err));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                    }
+                }
             }
         }
         

@@ -72,21 +72,27 @@ pub enum IpcMessage {
     },
     ListVolumes,
     GetVolume { id: Uuid },
+    GetVolumeByName { name: String },
     DeleteVolume { id: Uuid },
+    DeleteVolumeByName { name: String },
+    MountVolume { id: Uuid, path: PathBuf, options: Vec<String> },
+    UnmountVolume { target: String }, // Can be volume ID or mount path
     
     // Cluster operations
     ClusterStatus,
     JoinCluster { peer_address: String },
-    LeaveCluster,
+    LeaveCluster { force: bool },
     ListPeers,
     
     // Daemon operations
     Shutdown,
     Status,
     GetConfig,
+    Restart,
     
     // Storage class operations
     CreateStorageClass { storage_class: StorageClass },
+    CreateStorageClassFromFile { config_file: PathBuf },
     ListStorageClasses,
 }
 
@@ -109,6 +115,11 @@ pub enum IpcResponse {
         bind_address: String,
     },
     Config(DaemonConfig),
+    MountInfo {
+        mount_id: Uuid,
+        volume_id: Uuid, 
+        mount_path: PathBuf,
+    },
     Error(String),
 }
 
@@ -272,10 +283,77 @@ impl GalleonDaemon {
                 }
             }
             
+            IpcMessage::GetVolumeByName { name } => {
+                // Search for volume by name
+                match galleonfs.list_volumes().await {
+                    Ok(volumes) => {
+                        if let Some(volume) = volumes.iter().find(|v| v.name == name) {
+                            IpcResponse::Volume(volume.clone())
+                        } else {
+                            IpcResponse::Error(format!("Volume with name '{}' not found", name))
+                        }
+                    }
+                    Err(e) => IpcResponse::Error(format!("Failed to search volumes: {}", e)),
+                }
+            }
+            
             IpcMessage::DeleteVolume { id } => {
                 match galleonfs.delete_volume(id).await {
                     Ok(_) => IpcResponse::Success,
                     Err(e) => IpcResponse::Error(format!("Failed to delete volume: {}", e)),
+                }
+            }
+            
+            IpcMessage::DeleteVolumeByName { name } => {
+                // First find the volume by name, then delete by ID
+                match galleonfs.list_volumes().await {
+                    Ok(volumes) => {
+                        if let Some(volume) = volumes.iter().find(|v| v.name == name) {
+                            match galleonfs.delete_volume(volume.id).await {
+                                Ok(_) => IpcResponse::Success,
+                                Err(e) => IpcResponse::Error(format!("Failed to delete volume: {}", e)),
+                            }
+                        } else {
+                            IpcResponse::Error(format!("Volume with name '{}' not found", name))
+                        }
+                    }
+                    Err(e) => IpcResponse::Error(format!("Failed to search volumes: {}", e)),
+                }
+            }
+            
+            IpcMessage::MountVolume { id, path, options } => {
+                // Check if mount manager is available
+                if config.mount_point.is_none() {
+                    return IpcResponse::Error("Mount manager is not enabled. Start daemon with --mount-point to enable volume mounting.".to_string());
+                }
+                
+                let mount_manager = galleonfs.create_mount_manager();
+                match mount_manager.mount_volume(id, path.clone(), options).await {
+                    Ok(mount_id) => IpcResponse::MountInfo {
+                        mount_id,
+                        volume_id: id,
+                        mount_path: path,
+                    },
+                    Err(e) => IpcResponse::Error(format!("Failed to mount volume: {}", e)),
+                }
+            }
+            
+            IpcMessage::UnmountVolume { target } => {
+                if config.mount_point.is_none() {
+                    return IpcResponse::Error("Mount manager is not enabled. Start daemon with --mount-point to enable volume mounting.".to_string());
+                }
+                
+                let mount_manager = galleonfs.create_mount_manager();
+                
+                // Try to parse target as UUID first, otherwise treat as path
+                if let Ok(mount_id) = Uuid::parse_str(&target) {
+                    match mount_manager.unmount_volume(mount_id).await {
+                        Ok(_) => IpcResponse::Success,
+                        Err(e) => IpcResponse::Error(format!("Failed to unmount volume: {}", e)),
+                    }
+                } else {
+                    // TODO: Implement unmount by path
+                    IpcResponse::Error("Unmounting by path is not yet implemented. Use mount ID.".to_string())
                 }
             }
             
@@ -289,11 +367,41 @@ impl GalleonDaemon {
                 }
             }
             
+            IpcMessage::JoinCluster { peer_address } => {
+                // TODO: Implement dynamic cluster joining
+                IpcResponse::Error(format!("Dynamic cluster joining not yet implemented. Restart daemon with --peer-addresses {}", peer_address))
+            }
+            
+            IpcMessage::LeaveCluster { force: _ } => {
+                // TODO: Implement cluster leave
+                IpcResponse::Error("Cluster leave operation not yet implemented".to_string())
+            }
+            
+            IpcMessage::ListPeers => {
+                IpcResponse::ClusterInfo {
+                    node_id: Uuid::new_v4(), // TODO: Use actual node ID
+                    peers: config.peer_addresses.clone(),
+                    cluster_size: config.peer_addresses.len() + 1,
+                }
+            }
+            
             IpcMessage::ListStorageClasses => {
                 match galleonfs.list_storage_classes().await {
                     Ok(classes) => IpcResponse::StorageClasses(classes),
                     Err(e) => IpcResponse::Error(format!("Failed to list storage classes: {}", e)),
                 }
+            }
+            
+            IpcMessage::CreateStorageClass { storage_class } => {
+                match galleonfs.create_storage_class(storage_class).await {
+                    Ok(_) => IpcResponse::Success,
+                    Err(e) => IpcResponse::Error(format!("Failed to create storage class: {}", e)),
+                }
+            }
+            
+            IpcMessage::CreateStorageClassFromFile { config_file } => {
+                // TODO: Implement storage class creation from file
+                IpcResponse::Error(format!("Storage class creation from file not yet implemented: {:?}", config_file))
             }
             
             IpcMessage::Status => {
@@ -309,9 +417,13 @@ impl GalleonDaemon {
                 IpcResponse::Config(config.clone())
             }
             
-            // TODO: Implement remaining operations
-            _ => {
-                IpcResponse::Error("Operation not yet implemented".to_string())
+            IpcMessage::Shutdown => {
+                // TODO: Implement graceful shutdown
+                std::process::exit(0);
+            }
+            
+            IpcMessage::Restart => {
+                IpcResponse::Error("Daemon restart not yet implemented. Please stop and start manually.".to_string())
             }
         }
     }
