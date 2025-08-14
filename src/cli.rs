@@ -5,6 +5,7 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -331,7 +332,7 @@ impl GalleonClient {
                     println!("Are you sure you want to delete volume '{}'? [y/N]", id);
                     let mut input = String::new();
                     let mut stdin = io::BufReader::new(io::stdin());
-                    stdin.read_line(&mut input).await?;
+                    stdin.read_line(&mut input)?;
                     if !input.trim().to_lowercase().starts_with('y') {
                         println!("Volume deletion cancelled.");
                         return Ok(());

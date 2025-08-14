@@ -23,7 +23,7 @@ pub mod daemon;
 pub mod cli;
 pub mod cluster;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "fuse"))]
 pub mod fuse_fs;
 
 #[cfg(windows)]

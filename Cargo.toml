@@ -25,8 +25,12 @@ base64 = "0.21"
 serde_json = "1.0"
 # FUSE support (Linux/macOS only)
 [target.'cfg(unix)'.dependencies]
-fuser = "0.14"
-libc = "0.2"
+fuser = { version = "0.14", optional = true }
+libc = { version = "0.2", optional = true }
+
+[features]
+default = ["fuse"]
+fuse = ["fuser", "libc"]
 
 [dev-dependencies]
 tempfile = "3.0"

@@ -141,7 +141,7 @@ async fn main() -> Result<()> {
     } else if is_cli_subcommand {
         // Parse with GalleonCli for CLI subcommands
         let galleon_cli = GalleonCli::try_parse_from(&args)?;
-        let client = GalleonClient::new("127.0.0.1:8090".to_string()); // Default daemon address
+        let client = GalleonClient::new(galleon_cli.daemon_address.clone());
         return client.execute(galleon_cli).await;
     } else {
         // No subcommands or daemon flag, show help
