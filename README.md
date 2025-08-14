@@ -508,7 +508,6 @@ RUST_LOG=debug ./target/release/galleonfs
 - 🔄 Advanced QoS policies
 - 🔄 Compression and deduplication
 - 🔄 S3-compatible object storage
-- 🔄 Kubernetes CSI driver
 
 ### Future Features (v1.0)
 - 📋 Multi-datacenter replication
