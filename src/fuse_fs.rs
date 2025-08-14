@@ -282,10 +282,11 @@ impl GalleonFuseFS {
 
 impl Filesystem for GalleonFuseFS {
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        let galleonfs = self.clone();
+        let _galleonfs = self.clone();
+        let name_owned = name.to_owned();
         
         tokio::spawn(async move {
-            match galleonfs.find_by_name(parent, name).await {
+            match _galleonfs.find_by_name(parent, &name_owned).await {
                 Some(metadata) => {
                     reply.entry(&TTL, &metadata.to_file_attr(), 0);
                 }
