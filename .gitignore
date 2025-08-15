@@ -19,3 +19,23 @@ target/
 /test_mount
 /test_mount_node1
 /test_storage_node1
+/galleonfs_storage_node*
+/test_mount_node*
+/test_storage_node*
+# Large test and storage files
+**/*storage*
+**/*mount*
+*.large
+*.tmp
+*.sock
+
+# Test script generated files
+node*.log
+node*_error.log
+test_node*_storage/
+
+# VFS test artifacts
+test_vfs_node*_storage/
+test_vfs_node*_mount/
+Node*_daemon.log
+*_daemon.log

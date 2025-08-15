@@ -9,6 +9,7 @@ use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
 use crate::{GalleonFS, Volume, WriteConcern, VolumeState, AccessMode, VolumeType};
+use crate::vfs_service::HighPerformanceVFS;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MountState {
@@ -48,6 +49,7 @@ pub struct VolumeMountManager {
     mounts: Arc<RwLock<HashMap<Uuid, VolumeMount>>>, // mount_id -> mount
     volume_mounts: Arc<RwLock<HashMap<Uuid, Vec<Uuid>>>>, // volume_id -> mount_ids
     path_mounts: Arc<RwLock<HashMap<PathBuf, Uuid>>>, // mount_point -> mount_id
+    vfs_instances: Arc<RwLock<HashMap<Uuid, Arc<HighPerformanceVFS>>>>, // mount_id -> VFS
 }
 
 impl VolumeMountManager {
@@ -57,6 +59,7 @@ impl VolumeMountManager {
             mounts: Arc::new(RwLock::new(HashMap::new())),
             volume_mounts: Arc::new(RwLock::new(HashMap::new())),
             path_mounts: Arc::new(RwLock::new(HashMap::new())),
+            vfs_instances: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -106,8 +109,19 @@ impl VolumeMountManager {
         }
         fs::create_dir_all(&mount_point)?;
 
-        // Create virtual volume file interface
-        self.create_volume_interface(&mount_point, &volume).await?;
+        // Create high-performance VFS for this mount
+        let vfs = Arc::new(HighPerformanceVFS::new(
+            volume_id,
+            mount_point.clone(),
+            self.galleonfs.clone(),
+            volume.size_bytes,
+        ).await?);
+        
+        // Store VFS instance
+        {
+            let mut vfs_instances = self.vfs_instances.write().await;
+            vfs_instances.insert(mount_id, vfs.clone());
+        }
 
         // Update mount tracking
         {
@@ -157,8 +171,24 @@ impl VolumeMountManager {
             }
         }
 
-        // Remove volume interface
-        self.cleanup_volume_interface(&mount.mount_point).await?;
+        // Get VFS instance and force sync before unmounting
+        let vfs = {
+            let vfs_instances = self.vfs_instances.read().await;
+            vfs_instances.get(&mount_id).cloned()
+        };
+        
+        if let Some(vfs) = vfs {
+            // Force sync all data to storage
+            if let Err(e) = vfs.force_sync().await {
+                tracing::warn!("Failed to sync VFS data during unmount: {}", e);
+            }
+        }
+        
+        // Remove VFS instance
+        {
+            let mut vfs_instances = self.vfs_instances.write().await;
+            vfs_instances.remove(&mount_id);
+        }
 
         // Update tracking
         {
@@ -310,57 +340,21 @@ impl VolumeMountManager {
         Ok(false)
     }
 
-    /// Create volume interface at mount point
-    async fn create_volume_interface(&self, mount_point: &Path, volume: &Volume) -> Result<()> {
-        // Create volume data file
-        let volume_file = mount_point.join("data");
-        fs::File::create(&volume_file)?;
-
-        // Create volume metadata file  
-        let metadata_file = mount_point.join(".galleonfs_metadata");
-        let metadata = serde_json::json!({
-            "volume_id": volume.id,
-            "volume_name": volume.name,
-            "volume_type": volume.volume_type,
-            "size_bytes": volume.size_bytes,
-            "storage_class": volume.storage_class,
-            "created_at": volume.created_at,
-        });
-        fs::write(metadata_file, serde_json::to_string_pretty(&metadata)?)?;
-
-        // Create README for users
-        let readme_file = mount_point.join("README.txt");
-        let readme_content = format!(
-            "GalleonFS Volume Mount\n\
-             =====================\n\
-             \n\
-             Volume: {} ({})\n\
-             Type: {:?}\n\
-             Size: {} bytes\n\
-             Storage Class: {}\n\
-             \n\
-             Usage:\n\
-             - Read data: cat data\n\
-             - Write data: echo 'content' > data\n\
-             - Copy files: cp myfile.txt data\n\
-             \n\
-             The 'data' file represents the volume content.\n\
-             All operations on this file are backed by GalleonFS storage.\n",
-            volume.name,
-            volume.id,
-            volume.volume_type,
-            volume.size_bytes,
-            volume.storage_class
-        );
-        fs::write(readme_file, readme_content)?;
-
-        Ok(())
+    /// Get VFS performance statistics for a mount
+    pub async fn get_vfs_stats(&self, mount_id: Uuid) -> Option<(u64, u64, usize)> {
+        let vfs_instances = self.vfs_instances.read().await;
+        if let Some(vfs) = vfs_instances.get(&mount_id) {
+            Some(vfs.get_performance_stats().await)
+        } else {
+            None
+        }
     }
-
-    /// Clean up volume interface
-    async fn cleanup_volume_interface(&self, mount_point: &Path) -> Result<()> {
-        if mount_point.exists() {
-            fs::remove_dir_all(mount_point)?;
+    
+    /// Force sync a specific VFS instance
+    pub async fn force_vfs_sync(&self, mount_id: Uuid) -> Result<()> {
+        let vfs_instances = self.vfs_instances.read().await;
+        if let Some(vfs) = vfs_instances.get(&mount_id) {
+            vfs.force_sync().await?;
         }
         Ok(())
     }
@@ -452,6 +446,15 @@ impl GalleonVolumeFile {
         let start_block = self.position / block_size;
         let mut written = 0;
 
+        // Determine write concern based on volume type
+        let volume = self.galleonfs.get_volume(self.volume_id).await?
+            .ok_or_else(|| anyhow::anyhow!("Volume not found"))?;
+        let write_concern = if volume.volume_type == crate::VolumeType::Shared {
+            WriteConcern::WriteReplicated
+        } else {
+            WriteConcern::WriteDurable
+        };
+
         for (i, chunk) in buf.chunks(block_size as usize).enumerate() {
             let block_id = start_block + i as u64;
             let block_offset = if i == 0 { self.position % block_size } else { 0 };
@@ -462,7 +465,7 @@ impl GalleonVolumeFile {
                     self.volume_id,
                     block_id,
                     chunk,
-                    WriteConcern::WriteDurable
+                    write_concern
                 ).await?;
                 written += chunk.len();
             } else {
@@ -488,7 +491,7 @@ impl GalleonVolumeFile {
                     self.volume_id,
                     block_id,
                     &block_data,
-                    WriteConcern::WriteDurable
+                    write_concern
                 ).await?;
                 
                 written += copy_len;
@@ -549,6 +552,7 @@ impl Clone for VolumeMountManager {
             mounts: self.mounts.clone(),
             volume_mounts: self.volume_mounts.clone(),
             path_mounts: self.path_mounts.clone(),
+            vfs_instances: self.vfs_instances.clone(),
         }
     }
 }

@@ -19,12 +19,17 @@ pub mod monitoring;
 pub mod replication;
 pub mod volume_mount;
 pub mod replication_mount_test;
+pub mod daemon;
+pub mod cli;
+pub mod cluster;
+pub mod cross_platform_vfs;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "fuse"))]
 pub mod fuse_fs;
 
 #[cfg(windows)]
 pub mod virtual_fs;
+pub mod vfs_service;
 
 // Core Volume Types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -568,6 +573,15 @@ impl GalleonFS {
         );
         
         self.storage_engine.create_volume(&mut volume).await?;
+        
+        // Replicate volume creation to peers if this is a shared or replicated volume
+        if volume.volume_type == VolumeType::Shared || self.is_replicated_storage_class(&volume.storage_class).await? {
+            if let Err(e) = self.replication_service.replicate_volume_creation(&volume).await {
+                tracing::warn!("Failed to replicate volume creation to peers: {}", e);
+                // Don't fail the entire operation, just log the warning
+            }
+        }
+        
         Ok(volume)
     }
 
@@ -666,6 +680,26 @@ impl GalleonFS {
         self.storage_engine.list_volumes().await
     }
 
+    // Helper method to check if a storage class is configured for replication
+    async fn is_replicated_storage_class(&self, storage_class_name: &str) -> Result<bool> {
+        if let Some(storage_class) = self.get_storage_class(storage_class_name).await? {
+            // Check if the storage class has replication parameters
+            if let Some(replication) = storage_class.parameters.get("replication") {
+                if let Ok(replica_count) = replication.parse::<i32>() {
+                    return Ok(replica_count > 1);
+                }
+            }
+            
+            // Check if the provisioner indicates distributed/replicated storage
+            if storage_class.provisioner.contains("distributed") {
+                return Ok(true);
+            }
+        }
+        
+        // Default to considering encrypted storage as replicated
+        Ok(storage_class_name.contains("encrypted") || storage_class_name.contains("replicated"))
+    }
+
 
     // Volume Mount Manager
     pub fn create_mount_manager(&self) -> crate::volume_mount::VolumeMountManager {
@@ -675,5 +709,22 @@ impl GalleonFS {
     // Service Management
     pub async fn run(&self, bind_address: String) -> Result<()> {
         self.replication_service.run(bind_address, self.replication_strategy).await
+    }
+
+    // Replication Management
+    pub async fn add_replication_peer(&self, peer_address: String) {
+        self.replication_service.add_peer_address(peer_address).await;
+    }
+
+    pub async fn remove_replication_peer(&self, peer_address: &str) {
+        self.replication_service.remove_peer_address(peer_address).await;
+    }
+
+    pub async fn update_replication_peers(&self, peer_addresses: Vec<String>) {
+        self.replication_service.update_peer_addresses(peer_addresses).await;
+    }
+
+    pub async fn get_replication_peers(&self) -> Vec<String> {
+        self.replication_service.get_peer_addresses().await
     }
 }

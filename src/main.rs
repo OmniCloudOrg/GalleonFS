@@ -1,28 +1,19 @@
+//! GalleonFS Main Entry Point
+//!
+//! This is the main entry point for GalleonFS that supports both daemon mode
+//! and CLI mode operation.
+
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use galleonfs::{
+    daemon::{DaemonConfig, GalleonDaemon},
+    cli::{Cli as GalleonCli, GalleonClient},
+    cluster::{ClusterManager, get_default_node_capabilities},
     storage::FileStorageEngine, 
-    GalleonFS, 
     PersistenceLevel, 
     ReplicationStrategy, 
-    VolumeType, 
-    WriteConcern,
-    StorageClass,
-    ReclaimPolicy,
-    VolumeBindingMode,
-    QoSPolicy,
-    QoSLimits,
-    QoSGuarantees,
-    LabelSelector,
-    BackupPolicy,
-    BackupRetention,
-    BackupTarget,
-    BackupStrategy,
-    ConsistencyLevel,
 };
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tracing::{info, Level};
 use tracing_subscriber;
 
@@ -60,82 +51,57 @@ impl From<CliPersistenceLevel> for PersistenceLevel {
     }
 }
 
-#[derive(Debug, Clone, ValueEnum)]
-enum CliVolumeType {
-    Ephemeral,
-    Persistent,
-    Shared,
-}
-
-impl From<CliVolumeType> for VolumeType {
-    fn from(cli_type: CliVolumeType) -> Self {
-        match cli_type {
-            CliVolumeType::Ephemeral => VolumeType::Ephemeral,
-            CliVolumeType::Persistent => VolumeType::Persistent,
-            CliVolumeType::Shared => VolumeType::Shared,
-        }
-    }
-}
-
-#[derive(Debug, Clone, ValueEnum)]
-enum CliWriteConcern {
-    WriteAcknowledged,
-    WriteDurable,
-    WriteReplicated,
-    WriteDistributed,
-}
-
-impl From<CliWriteConcern> for WriteConcern {
-    fn from(cli_concern: CliWriteConcern) -> Self {
-        match cli_concern {
-            CliWriteConcern::WriteAcknowledged => WriteConcern::WriteAcknowledged,
-            CliWriteConcern::WriteDurable => WriteConcern::WriteDurable,
-            CliWriteConcern::WriteReplicated => WriteConcern::WriteReplicated,
-            CliWriteConcern::WriteDistributed => WriteConcern::WriteDistributed,
-        }
-    }
-}
-
+/// Main CLI arguments for GalleonFS
 #[derive(Parser)]
 #[command(name = "galleonfs")]
 #[command(about = "A distributed, high-performance, network-replicated filesystem")]
-struct Cli {
-    #[arg(long, default_value = "synchronous")]
-    replication_strategy: CliReplicationStrategy,
+#[command(version = env!("CARGO_PKG_VERSION"))]
+struct MainCli {
+    /// Run in daemon mode (persistent background service)
+    #[arg(short, long)]
+    daemon: bool,
 
-    #[arg(long, default_value = "enhanced")]
-    persistence_level: CliPersistenceLevel,
-
-    #[arg(long, default_value = "persistent")]
-    volume_type: CliVolumeType,
-
-    #[arg(long, default_value = "write-acknowledged")]
-    write_concern: CliWriteConcern,
-
+    /// Storage path for the node
     #[arg(long, default_value = "./galleonfs_storage")]
     storage_path: PathBuf,
 
+    /// Block size for storage operations
     #[arg(long, default_value = "4096")]
     block_size: u64,
 
-    #[arg(long, default_value = "1073741824")] // 1GB
-    volume_size: u64,
-
+    /// Address to bind the storage service to
     #[arg(long, default_value = "127.0.0.1:8080")]
     bind_address: String,
 
+    /// Address to bind the IPC service to (daemon mode only)
+    #[arg(long, default_value = "127.0.0.1:8090")]
+    ipc_address: String,
+
+    /// Peer addresses for cluster formation
     #[arg(long, value_delimiter = ',')]
     peer_addresses: Vec<String>,
 
-    #[arg(long)]
-    demo_mode: bool,
+    /// Replication strategy
+    #[arg(long, default_value = "synchronous")]
+    replication_strategy: CliReplicationStrategy,
 
-    #[arg(long)]
-    setup_defaults: bool,
+    /// Persistence level
+    #[arg(long, default_value = "enhanced")]
+    persistence_level: CliPersistenceLevel,
 
+    /// Mount point for volumes (daemon mode only)
     #[arg(long)]
     mount_point: Option<PathBuf>,
 
+    /// Legacy demo mode support
+    #[arg(long)]
+    demo_mode: bool,
+
+    /// Legacy setup defaults support
+    #[arg(long)]
+    setup_defaults: bool,
+
+    /// Legacy test replication support
     #[arg(long)]
     test_replication: bool,
 }
@@ -146,81 +112,189 @@ async fn main() -> Result<()> {
         .with_max_level(Level::INFO)
         .init();
 
-    let cli = Cli::parse();
+    let args: Vec<String> = std::env::args().collect();
+    
+    // Check if this is a daemon invocation (has -d or --daemon)
+    let is_daemon = args.iter().any(|arg| arg == "-d" || arg == "--daemon");
+    
+    // Check if this is a legacy mode invocation
+    let is_legacy = args.iter().any(|arg| {
+        arg == "--demo-mode" || arg == "--setup-defaults" || arg == "--test-replication"
+    });
+    
+    // Check if this is a CLI subcommand invocation
+    let is_cli_subcommand = has_subcommand(&args);
 
-    info!("Starting GalleonFS with configuration:");
-    info!("  Replication Strategy: {:?}", cli.replication_strategy);
-    info!("  Persistence Level: {:?}", cli.persistence_level);
-    info!("  Volume Type: {:?}", cli.volume_type);
-    info!("  Write Concern: {:?}", cli.write_concern);
-    info!("  Storage Path: {:?}", cli.storage_path);
-    info!("  Block Size: {} bytes", cli.block_size);
-    info!("  Bind Address: {}", cli.bind_address);
-    info!("  Peer Addresses: {:?}", cli.peer_addresses);
+    if is_daemon || is_legacy {
+        // Parse with MainCli for daemon/legacy modes
+        let main_cli = MainCli::parse();
+        
+        // Handle legacy modes first
+        if main_cli.demo_mode || main_cli.setup_defaults || main_cli.test_replication {
+            return run_legacy_mode(main_cli).await;
+        }
 
+        if main_cli.daemon {
+            // Run in daemon mode
+            return run_daemon_mode(main_cli).await;
+        }
+    } else if is_cli_subcommand {
+        // Parse with GalleonCli for CLI subcommands
+        let galleon_cli = GalleonCli::try_parse_from(&args)?;
+        let client = GalleonClient::new(galleon_cli.daemon_address.clone());
+        return client.execute(galleon_cli).await;
+    } else {
+        // No subcommands or daemon flag, show help
+        eprintln!("GalleonFS - Distributed Filesystem");
+        eprintln!("");
+        eprintln!("USAGE:");
+        eprintln!("    galleonfs -d [OPTIONS]         # Run daemon mode");
+        eprintln!("    galleonfs volume <COMMAND>     # Volume management");
+        eprintln!("    galleonfs cluster <COMMAND>    # Cluster management");
+        eprintln!("    galleonfs daemon <COMMAND>     # Daemon management");
+        eprintln!("");
+        eprintln!("For more help, try:");
+        eprintln!("    galleonfs -h                   # Show all options");
+        eprintln!("    galleonfs volume -h            # Volume commands");
+        eprintln!("    galleonfs cluster -h           # Cluster commands");
+        eprintln!("    galleonfs daemon -h            # Daemon commands");
+        return Ok(());
+    }
+
+    Ok(())
+}
+
+/// Check if the command line arguments contain subcommands
+fn has_subcommand(args: &[String]) -> bool {
+    args.iter().any(|arg| {
+        matches!(arg.as_str(), "volume" | "cluster" | "daemon" | "storage-class")
+    })
+}
+
+/// Run GalleonFS in daemon mode
+async fn run_daemon_mode(main_cli: MainCli) -> Result<()> {
+    info!("Starting GalleonFS in daemon mode...");
+    
+    let config = DaemonConfig {
+        storage_path: main_cli.storage_path,
+        block_size: main_cli.block_size,
+        bind_address: main_cli.bind_address,
+        ipc_address: main_cli.ipc_address,
+        peer_addresses: main_cli.peer_addresses.clone(),
+        replication_strategy: main_cli.replication_strategy.into(),
+        persistence_level: main_cli.persistence_level.into(),
+        mount_point: main_cli.mount_point,
+    };
+
+    info!("Daemon configuration:");
+    info!("  Storage path: {:?}", config.storage_path);
+    info!("  Block size: {} bytes", config.block_size);
+    info!("  Bind address: {}", config.bind_address);
+    info!("  IPC address: {}", config.ipc_address);
+    info!("  Replication strategy: {:?}", config.replication_strategy);
+    info!("  Persistence level: {:?}", config.persistence_level);
+    info!("  Peer addresses: {:?}", config.peer_addresses);
+
+    // Initialize cluster manager
+    let capabilities = get_default_node_capabilities();
+    let mut cluster_manager = ClusterManager::new(config.bind_address.clone(), capabilities);
+
+    // Initialize or join cluster
+    if main_cli.peer_addresses.is_empty() {
+        info!("No peers specified, initializing new cluster");
+        cluster_manager.initialize_cluster("galleonfs-cluster".to_string()).await?;
+    } else {
+        info!("Peers specified, attempting to join existing cluster");
+        let peer_address = main_cli.peer_addresses[0].clone();
+        cluster_manager.join_cluster(peer_address).await?;
+    }
+
+    // Start cluster background tasks
+    cluster_manager.start_background_tasks().await?;
+
+    // Create and start daemon
+    let daemon = GalleonDaemon::new(config)?;
+    daemon.start().await?;
+
+    Ok(())
+}
+
+
+/// Run legacy modes for backward compatibility
+async fn run_legacy_mode(main_cli: MainCli) -> Result<()> {
+    use galleonfs::{
+        GalleonFS,
+        VolumeType,
+        WriteConcern,
+        StorageClass,
+        ReclaimPolicy,
+        VolumeBindingMode,
+    };
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    info!("Running in legacy compatibility mode");
+    
     let storage_engine = Arc::new(FileStorageEngine::new(
-        cli.storage_path.clone(),
-        cli.block_size,
+        main_cli.storage_path.clone(),
+        main_cli.block_size,
     ));
 
     let galleonfs = GalleonFS::new(
         storage_engine,
-        cli.replication_strategy.clone().into(),
-        cli.persistence_level.clone().into(),
-        cli.peer_addresses.clone(),
+        main_cli.replication_strategy.into(),
+        main_cli.persistence_level.into(),
+        main_cli.peer_addresses.clone(),
     );
 
-    if cli.setup_defaults {
+    if main_cli.setup_defaults {
         info!("Setting up default storage classes and policies...");
         setup_default_configuration(&galleonfs).await?;
         info!("Default configuration completed");
     }
 
-    if cli.demo_mode {
+    if main_cli.demo_mode {
         info!("Running in demo mode");
-        return run_demo(&galleonfs, &cli).await;
+        return run_demo(&galleonfs).await;
     }
 
-    if cli.test_replication {
+    if main_cli.test_replication {
         info!("Running replication and double mount test");
         return galleonfs::replication_mount_test::run_replication_and_double_mount_test().await;
     }
 
-    // Start the mount manager service if mount point is specified
-    if let Some(base_mount_point) = &cli.mount_point {
+    // Legacy mount mode
+    if let Some(base_mount_point) = &main_cli.mount_point {
         info!("Starting GalleonFS with volume mounting at: {:?}", base_mount_point);
         
-        // Create mount point directory
         std::fs::create_dir_all(base_mount_point)?;
-        
-        // Create mount manager
         let mount_manager = galleonfs.create_mount_manager();
         
-        // Start the replication service in a background task
         let galleonfs_clone = galleonfs.clone();
-        let bind_address_clone = cli.bind_address.clone();
+        let bind_address_clone = main_cli.bind_address.clone();
         tokio::spawn(async move {
             if let Err(e) = galleonfs_clone.run(bind_address_clone).await {
                 tracing::error!("Replication service error: {}", e);
             }
         });
         
-        // Wait a moment for the service to start
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         
         info!("GalleonFS mount service started. Volumes can now be mounted individually.");
         info!("Example: each volume will be mountable at {}/volume-name", base_mount_point.display());
         
-        // Run mount demonstration if in demo mode
         return run_mount_demo(&galleonfs, &mount_manager, base_mount_point).await;
     } else {
         info!("Starting GalleonFS service...");
-        galleonfs.run(cli.bind_address).await
+        galleonfs.run(main_cli.bind_address).await
     }
 }
 
-async fn setup_default_configuration(galleonfs: &GalleonFS) -> Result<()> {
-    // Create default storage classes
+/// Setup default storage classes (legacy compatibility)
+async fn setup_default_configuration(galleonfs: &galleonfs::GalleonFS) -> Result<()> {
+    use galleonfs::{StorageClass, ReclaimPolicy, VolumeBindingMode};
+    use std::collections::HashMap;
+
     let fast_local_ssd = StorageClass {
         name: "fast-local-ssd".to_string(),
         provisioner: "galleonfs.io/local-ssd".to_string(),
@@ -254,32 +328,17 @@ async fn setup_default_configuration(galleonfs: &GalleonFS) -> Result<()> {
         mount_options: vec!["noatime".to_string()],
     };
 
-    let archival_storage = StorageClass {
-        name: "archival-storage".to_string(),
-        provisioner: "galleonfs.io/cold-storage".to_string(),
-        parameters: {
-            let mut params = HashMap::new();
-            params.insert("disk_type".to_string(), "hdd".to_string());
-            params.insert("compression".to_string(), "true".to_string());
-            params.insert("deduplication".to_string(), "true".to_string());
-            params
-        },
-        reclaim_policy: ReclaimPolicy::Retain,
-        volume_binding_mode: VolumeBindingMode::Immediate,
-        allowed_topologies: vec!["zone-a".to_string()],
-        mount_options: vec![],
-    };
-
     galleonfs.create_storage_class(fast_local_ssd).await?;
     galleonfs.create_storage_class(encrypted_storage).await?;
-    galleonfs.create_storage_class(archival_storage).await?;
 
-    info!("Created default storage classes: fast-local-ssd, encrypted-storage, archival-storage");
-
+    info!("Created default storage classes: fast-local-ssd, encrypted-storage");
     Ok(())
 }
 
-async fn run_demo(galleonfs: &GalleonFS, cli: &Cli) -> Result<()> {
+/// Legacy demo mode implementation
+async fn run_demo(galleonfs: &galleonfs::GalleonFS) -> Result<()> {
+    use galleonfs::{VolumeType, WriteConcern};
+
     info!("=== GalleonFS Production Demo ===");
 
     // Demo 1: Storage Classes
@@ -315,114 +374,25 @@ async fn run_demo(galleonfs: &GalleonFS, cli: &Cli) -> Result<()> {
 
     info!("Writing to encrypted volume with WriteReplicated concern...");
     galleonfs
-        .write_block(encrypted_volume.id, 0, demo_data_2, cli.write_concern.clone().into())
+        .write_block(encrypted_volume.id, 0, demo_data_2, WriteConcern::WriteReplicated)
         .await?;
-
-    // Demo 4: Reading data back
-    info!("4. Reading data back and verifying integrity");
-    
-    let read_data_1 = galleonfs.read_block(fast_volume.id, 0).await?;
-    let read_str_1 = std::str::from_utf8(&read_data_1[..demo_data_1.len()])?;
-    info!("Read from fast SSD volume: {}", read_str_1);
-
-    let read_data_2 = galleonfs.read_block(encrypted_volume.id, 0).await?;
-    let read_str_2 = std::str::from_utf8(&read_data_2[..demo_data_2.len()])?;
-    info!("Read from encrypted volume: {}", read_str_2);
-
-    // Demo 5: Snapshots
-    info!("5. Creating and managing snapshots");
-    
-    let snapshot1 = galleonfs
-        .create_snapshot(fast_volume.id, "fast-volume-snapshot-1")
-        .await?;
-    info!("Created snapshot: {:?}", snapshot1.id);
-
-    let snapshot2 = galleonfs
-        .create_snapshot(encrypted_volume.id, "encrypted-volume-snapshot-1") 
-        .await?;
-    info!("Created snapshot: {:?}", snapshot2.id);
-
-    let snapshots = galleonfs.list_snapshots(fast_volume.id).await?;
-    info!("Snapshots for fast volume: {} total", snapshots.len());
-
-    // Demo 6: Volume expansion
-    info!("6. Demonstrating volume expansion");
-    
-    let original_size = fast_volume.size_bytes;
-    let new_size = original_size + (256 * 1024 * 1024); // Add 256MB
-    
-    galleonfs.expand_volume(fast_volume.id, new_size).await?;
-    info!("Expanded volume from {} bytes to {} bytes", original_size, new_size);
-
-    // Demo 7: Volume cloning
-    info!("7. Cloning volumes");
-    
-    let cloned_volume = galleonfs
-        .clone_volume(fast_volume.id, "cloned-fast-volume")
-        .await?;
-    info!("Cloned volume created: {:?}", cloned_volume.id);
-
-    // Verify cloned data
-    let cloned_data = galleonfs.read_block(cloned_volume.id, 0).await?;
-    let cloned_str = std::str::from_utf8(&cloned_data[..demo_data_1.len()])?;
-    info!("Data in cloned volume: {}", cloned_str);
-
-    // Demo 8: Metrics and monitoring
-    info!("8. Retrieving volume metrics");
-    
-    let fast_volume_metrics = galleonfs.get_volume_metrics(fast_volume.id).await?;
-    info!("Fast volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms", 
-        fast_volume_metrics.iops, fast_volume_metrics.throughput_mbps, fast_volume_metrics.latency_ms);
-
-    let encrypted_volume_metrics = galleonfs.get_volume_metrics(encrypted_volume.id).await?;
-    info!("Encrypted volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms", 
-        encrypted_volume_metrics.iops, encrypted_volume_metrics.throughput_mbps, encrypted_volume_metrics.latency_ms);
-
-    // Demo 9: Volume usage
-    info!("9. Checking volume usage");
-    
-    let fast_volume_usage = galleonfs.get_volume_usage(fast_volume.id).await?;
-    let encrypted_volume_usage = galleonfs.get_volume_usage(encrypted_volume.id).await?;
-    info!("Fast volume usage: {} bytes", fast_volume_usage);
-    info!("Encrypted volume usage: {} bytes", encrypted_volume_usage);
-
-    // Demo 10: List all volumes
-    info!("10. Listing all volumes in the system");
-    
-    let all_volumes = galleonfs.list_volumes().await?;
-    info!("Total volumes in system: {}", all_volumes.len());
-    for volume in all_volumes {
-        info!("  Volume: {} ({}), State: {:?}, Size: {} bytes, Class: {}", 
-            volume.name, volume.id, volume.state, volume.size_bytes, volume.storage_class);
-    }
 
     info!("=== Demo completed successfully! ===");
-    info!("All features demonstrated:");
-    info!("  ✓ Multiple storage classes with different characteristics");
-    info!("  ✓ Volume creation, expansion, and cloning");
-    info!("  ✓ Different write concerns for durability guarantees");
-    info!("  ✓ Snapshot creation and management");
-    info!("  ✓ Performance metrics and monitoring");
-    info!("  ✓ Data integrity verification");
-    info!("  ✓ Volume usage tracking");
-
     Ok(())
 }
 
+/// Legacy mount demo implementation
 async fn run_mount_demo(
-    galleonfs: &GalleonFS,
+    galleonfs: &galleonfs::GalleonFS,
     mount_manager: &galleonfs::volume_mount::VolumeMountManager,
     base_mount_point: &std::path::Path
 ) -> Result<()> {
-    use galleonfs::{VolumeType, WriteConcern};
-    use std::path::PathBuf;
+    use galleonfs::VolumeType;
 
     info!("=== GalleonFS Volume Mounting Demo ===");
 
-    // Setup default configuration first
     setup_default_configuration(galleonfs).await?;
 
-    // Demo 1: Create volumes
     info!("1. Creating test volumes");
     
     let web_volume = galleonfs
@@ -435,7 +405,6 @@ async fn run_mount_demo(
         .await?;
     info!("Created database volume: {:?}", db_volume.id);
 
-    // Demo 2: Mount volumes at individual paths
     info!("2. Mounting volumes at individual paths");
 
     let web_mount_point = base_mount_point.join("web-server");
@@ -455,145 +424,10 @@ async fn run_mount_demo(
     ).await?;
     info!("Database volume mounted at: {}", db_mount_point.display());
 
-    // Demo 3: Write data directly through mount points
-    info!("3. Writing data through mounted volumes");
-
-    // Write web server config
-    let web_config = b"server {\n    listen 80;\n    root /var/www;\n    index index.html;\n}\n";
-    let mut web_file = mount_manager.open_volume_file(&web_mount_point).await?;
-    web_file.write(web_config).await?;
-    info!("Wrote web server config ({} bytes)", web_config.len());
-
-    // Write database schema
-    let db_schema = b"CREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    username VARCHAR(50),\n    email VARCHAR(100)\n);\n";
-    let mut db_file = mount_manager.open_volume_file(&db_mount_point).await?;
-    db_file.write(db_schema).await?;
-    info!("Wrote database schema ({} bytes)", db_schema.len());
-
-    // Demo 4: Read data back through mount points
-    info!("4. Reading data back through mounted volumes");
-
-    let mut web_file = mount_manager.open_volume_file(&web_mount_point).await?;
-    let mut web_buffer = vec![0; web_config.len()];
-    web_file.seek(std::io::SeekFrom::Start(0))?;
-    let web_read = web_file.read(&mut web_buffer).await?;
-    info!("Read web config: {}", String::from_utf8_lossy(&web_buffer[..web_read]));
-
-    let mut db_file = mount_manager.open_volume_file(&db_mount_point).await?;
-    let mut db_buffer = vec![0; db_schema.len()];
-    db_file.seek(std::io::SeekFrom::Start(0))?;
-    let db_read = db_file.read(&mut db_buffer).await?;
-    info!("Read database schema: {}", String::from_utf8_lossy(&db_buffer[..db_read]));
-
-    // Demo 5: Show mount information
-    info!("5. Listing all active mounts");
-
-    let mounts = mount_manager.list_mounts().await;
-    for mount in mounts {
-        info!("  Mount: {} -> {} (State: {:?})", 
-              mount.volume_id, mount.mount_point.display(), mount.state);
-    }
-
-    // Demo 6: Create snapshots of mounted volumes
-    info!("6. Creating snapshots of mounted volumes");
-
-    let web_snapshot = galleonfs.create_snapshot(web_volume.id, "web-config-backup").await?;
-    info!("Created web snapshot: {:?}", web_snapshot.id);
-
-    let db_snapshot = galleonfs.create_snapshot(db_volume.id, "db-schema-backup").await?;
-    info!("Created database snapshot: {:?}", db_snapshot.id);
-
-    // Demo 7: Volume expansion while mounted
-    info!("7. Expanding database volume while mounted");
-
-    let original_size = db_volume.size_bytes;
-    let new_size = original_size + (200 * 1024 * 1024); // Add 200MB
-    galleonfs.expand_volume(db_volume.id, new_size).await?;
-    info!("Expanded database volume from {} to {} bytes", original_size, new_size);
-
-    // Demo 8: Multiple mount points (shared access simulation)
-    info!("8. Demonstrating multiple mount points for same volume");
-
-    let web_readonly_mount = base_mount_point.join("web-readonly");
-    match mount_manager.mount_volume(
-        web_volume.id,
-        web_readonly_mount.clone(),
-        vec!["ro".to_string()] // Read-only
-    ).await {
-        Ok(web_readonly_mount_id) => {
-            info!("Web volume also mounted read-only at: {}", web_readonly_mount.display());
-            
-            // Demo reading from the read-only mount
-            let mut readonly_file = mount_manager.open_volume_file(&web_readonly_mount).await?;
-            let mut readonly_buffer = vec![0; 50];
-            readonly_file.seek(std::io::SeekFrom::Start(0))?;
-            let readonly_read = readonly_file.read(&mut readonly_buffer).await?;
-            info!("Read from readonly mount: {}", String::from_utf8_lossy(&readonly_buffer[..readonly_read]));
-            
-            // Add this mount ID to cleanup list
-            let cleanup_readonly_mount = web_readonly_mount_id;
-            
-            // Demo 9: Performance metrics for mounted volumes
-            info!("9. Checking performance metrics for mounted volumes");
-
-            let web_metrics = galleonfs.get_volume_metrics(web_volume.id).await?;
-            info!("Web volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
-                  web_metrics.iops, web_metrics.throughput_mbps, web_metrics.latency_ms);
-
-            let db_metrics = galleonfs.get_volume_metrics(db_volume.id).await?;
-            info!("Database volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
-                  db_metrics.iops, db_metrics.throughput_mbps, db_metrics.latency_ms);
-
-            // Demo 10: Cleanup - Unmount volumes
-            info!("10. Cleaning up - unmounting volumes");
-
-            mount_manager.unmount_volume(web_mount_id).await?;
-            info!("Unmounted web volume from primary mount");
-
-            mount_manager.unmount_volume(cleanup_readonly_mount).await?;
-            info!("Unmounted web volume from read-only mount");
-
-            mount_manager.unmount_volume(db_mount_id).await?;
-            info!("Unmounted database volume");
-        }
-        Err(e) => {
-            info!("Expected: Multiple mounts not supported for this volume type: {}", e);
-            info!("Note: Encrypted/distributed volumes and shared volumes support multiple mounts");
-            
-            // Demo 9: Performance metrics for mounted volumes  
-            info!("9. Checking performance metrics for mounted volumes");
-
-            let web_metrics = galleonfs.get_volume_metrics(web_volume.id).await?;
-            info!("Web volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
-                  web_metrics.iops, web_metrics.throughput_mbps, web_metrics.latency_ms);
-
-            let db_metrics = galleonfs.get_volume_metrics(db_volume.id).await?;
-            info!("Database volume metrics - IOPS: {:.2}, Throughput: {:.2} MB/s, Latency: {:.2} ms",
-                  db_metrics.iops, db_metrics.throughput_mbps, db_metrics.latency_ms);
-
-            // Demo 10: Cleanup - Unmount volumes
-            info!("10. Cleaning up - unmounting volumes");
-
-            mount_manager.unmount_volume(web_mount_id).await?;
-            info!("Unmounted web volume");
-
-            mount_manager.unmount_volume(db_mount_id).await?;
-            info!("Unmounted database volume");
-        }
-    }
+    // Cleanup
+    mount_manager.unmount_volume(web_mount_id).await?;
+    mount_manager.unmount_volume(db_mount_id).await?;
 
     info!("=== Volume Mounting Demo Completed! ===");
-    info!("Key capabilities demonstrated:");
-    info!("  ✓ Individual volume mounting at separate paths");
-    info!("  ✓ Multiple concurrent mounts of the same volume");
-    info!("  ✓ Read/write operations through mount points");
-    info!("  ✓ Volume expansion while mounted");
-    info!("  ✓ Snapshot creation of mounted volumes");
-    info!("  ✓ Performance monitoring of mounted volumes");
-    info!("  ✓ Clean mount/unmount lifecycle management");
-
-    info!("\nGalleonFS is now ready for production use!");
-    info!("Applications can mount volumes individually as needed.");
-
     Ok(())
 }

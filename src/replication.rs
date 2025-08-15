@@ -12,6 +12,8 @@ use uuid::Uuid;
 pub enum ReplicationMessage {
     WriteBlock(BlockData),
     WriteAck { block_id: u64, success: bool },
+    CreateVolume(crate::Volume),
+    VolumeCreated { volume_id: uuid::Uuid, success: bool },
     Heartbeat,
     HeartbeatAck,
 }
@@ -34,7 +36,7 @@ impl ReplicationRequest {
 #[derive(Clone)]
 pub struct ReplicationService {
     storage_engine: Arc<dyn StorageEngine>,
-    peer_addresses: Vec<String>,
+    peer_addresses: Arc<tokio::sync::RwLock<Vec<String>>>,
     async_sender: Option<mpsc::UnboundedSender<BlockData>>,
 }
 
@@ -42,9 +44,37 @@ impl ReplicationService {
     pub fn new(storage_engine: Arc<dyn StorageEngine>, peer_addresses: Vec<String>) -> Self {
         Self {
             storage_engine,
-            peer_addresses,
+            peer_addresses: Arc::new(tokio::sync::RwLock::new(peer_addresses)),
             async_sender: None,
         }
+    }
+
+    /// Update the list of peer addresses for replication
+    pub async fn update_peer_addresses(&self, new_peer_addresses: Vec<String>) {
+        let mut peers = self.peer_addresses.write().await;
+        *peers = new_peer_addresses;
+        info!("Updated replication peer addresses: {:?}", *peers);
+    }
+
+    /// Add a new peer address
+    pub async fn add_peer_address(&self, peer_address: String) {
+        let mut peers = self.peer_addresses.write().await;
+        if !peers.contains(&peer_address) {
+            peers.push(peer_address.clone());
+            info!("Added replication peer: {}", peer_address);
+        }
+    }
+
+    /// Remove a peer address
+    pub async fn remove_peer_address(&self, peer_address: &str) {
+        let mut peers = self.peer_addresses.write().await;
+        peers.retain(|addr| addr != peer_address);
+        info!("Removed replication peer: {}", peer_address);
+    }
+
+    /// Get current peer addresses
+    pub async fn get_peer_addresses(&self) -> Vec<String> {
+        self.peer_addresses.read().await.clone()
     }
 
     pub async fn run(&self, bind_address: String, strategy: ReplicationStrategy) -> Result<()> {
@@ -154,6 +184,26 @@ impl ReplicationService {
                             let ack_data = bincode::serialize(&ack)?;
                             stream.write_all(&ack_data).await?;
                         }
+                        ReplicationMessage::CreateVolume(volume) => {
+                            info!("Received volume creation request for volume {}", volume.id);
+                            let mut volume_copy = volume.clone();
+                            let create_result = storage_engine.create_volume(&mut volume_copy).await;
+                            let success = create_result.is_ok();
+
+                            let ack = ReplicationRequest::new(ReplicationMessage::VolumeCreated {
+                                volume_id: volume.id,
+                                success,
+                            });
+
+                            let ack_data = bincode::serialize(&ack)?;
+                            stream.write_all(&ack_data).await?;
+
+                            if success {
+                                info!("Successfully created replicated volume {}", volume.id);
+                            } else {
+                                warn!("Failed to create replicated volume {}", volume.id);
+                            }
+                        }
                         ReplicationMessage::Heartbeat => {
                             let ack = ReplicationRequest::new(ReplicationMessage::HeartbeatAck);
                             let ack_data = bincode::serialize(&ack)?;
@@ -218,9 +268,10 @@ impl ReplicationService {
         block_data: &BlockData,
         write_concern: WriteConcern,
     ) -> Result<()> {
+        let peer_addresses = self.peer_addresses.read().await;
         let required_replicas = match write_concern {
             WriteConcern::WriteReplicated => 1,
-            WriteConcern::WriteDistributed => self.peer_addresses.len().max(1),
+            WriteConcern::WriteDistributed => peer_addresses.len().max(1),
             _ => 0,
         };
 
@@ -232,7 +283,7 @@ impl ReplicationService {
         let request = ReplicationRequest::new(ReplicationMessage::WriteBlock(block_data.clone()));
         let request_data = bincode::serialize(&request)?;
 
-        for peer_address in &self.peer_addresses {
+        for peer_address in peer_addresses.iter() {
             match TcpStream::connect(peer_address).await {
                 Ok(mut stream) => {
                     if let Err(e) = stream.write_all(&request_data).await {
@@ -290,7 +341,8 @@ impl ReplicationService {
         let request = ReplicationRequest::new(ReplicationMessage::WriteBlock(block_data.clone()));
         let request_data = bincode::serialize(&request)?;
 
-        for peer_address in &self.peer_addresses {
+        let peer_addresses = self.peer_addresses.read().await;
+        for peer_address in peer_addresses.iter() {
             let peer_address = peer_address.clone();
             let request_data = request_data.clone();
             
@@ -308,6 +360,58 @@ impl ReplicationService {
                     }
                 }
             });
+        }
+
+        Ok(())
+    }
+
+    pub async fn replicate_volume_creation(&self, volume: &crate::Volume) -> Result<()> {
+        let peer_addresses = self.peer_addresses.read().await;
+        if peer_addresses.is_empty() {
+            return Ok(());
+        }
+
+        let request = ReplicationRequest::new(ReplicationMessage::CreateVolume(volume.clone()));
+        let request_data = bincode::serialize(&request)?;
+
+        for peer_address in peer_addresses.iter() {
+            match TcpStream::connect(peer_address).await {
+                Ok(mut stream) => {
+                    if let Err(e) = stream.write_all(&request_data).await {
+                        error!("Failed to send volume creation to peer {}: {}", peer_address, e);
+                        continue;
+                    }
+
+                    let mut buffer = vec![0u8; 1024];
+                    match stream.read(&mut buffer).await {
+                        Ok(n) if n > 0 => {
+                            match bincode::deserialize::<ReplicationRequest>(&buffer[..n]) {
+                                Ok(response) => {
+                                    if let ReplicationMessage::VolumeCreated { success, .. } = response.message {
+                                        if success {
+                                            info!("Successfully replicated volume {} to peer {}", volume.id, peer_address);
+                                        } else {
+                                            warn!("Failed to replicate volume {} to peer {}", volume.id, peer_address);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to deserialize volume creation response from {}: {}", peer_address, e);
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            warn!("Received empty response from peer {}", peer_address);
+                        }
+                        Err(e) => {
+                            error!("Failed to read volume creation response from {}: {}", peer_address, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to connect to peer {} for volume replication: {}", peer_address, e);
+                }
+            }
         }
 
         Ok(())
