@@ -109,7 +109,7 @@ build_galleonfs() {
     log_info "Building GalleonFS..."
     cd "$SCRIPT_DIR"
     
-    if ! cargo build --$BUILD_TARGET; then
+    if ! cargo build -Znext-lockfile-bump --$BUILD_TARGET; then
         log_error "Failed to build GalleonFS"
         exit 1
     fi
