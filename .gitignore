@@ -33,3 +33,9 @@ target/
 node*.log
 node*_error.log
 test_node*_storage/
+
+# VFS test artifacts
+test_vfs_node*_storage/
+test_vfs_node*_mount/
+Node*_daemon.log
+*_daemon.log

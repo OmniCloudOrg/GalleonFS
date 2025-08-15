@@ -335,37 +335,82 @@ Last Sync: 2024-01-15 10:30:15 UTC
 
 ## Testing Scripts
 
-### VFS Testing
+### 🔬 VFS and File Replication Testing
 
-GalleonFS includes comprehensive VFS testing scripts that demonstrate cross-platform virtual filesystem functionality:
+GalleonFS includes comprehensive VFS testing scripts that validate the entire virtual filesystem functionality including real-time synchronization and cross-node file replication:
 
 **Unix/Linux/macOS Testing**:
 ```bash
-# Run the VFS test suite
+# Run the complete VFS test suite
 ./test-vfs.sh
 
-# Custom configuration
-STORAGE_PATH_1="./test_storage1" VFS_MOUNT_1="./test_vfs1" ./test-vfs.sh
+# Optional: Use debug build for more verbose output
+./test-vfs.sh --build debug
+
+# View test progress in real-time
+tail -f node1_daemon.log node2_daemon.log
 ```
 
 **Windows Testing**:
 ```powershell
-# Run the VFS test suite
+# Run the complete VFS test suite
 .\test-vfs.ps1
 
-# Custom configuration  
-.\test-vfs.ps1 -StoragePath1 ".\test_storage1" -VfsMount1 ".\test_vfs1"
+# Optional: Use debug build and custom volume name
+.\test-vfs.ps1 -BuildConfig debug -TestVolumeName "my-test-volume"
+
+# View test progress in real-time
+Get-Content Node1_daemon.log -Wait
 ```
 
-**VFS Test Features**:
-- ✅ Cross-platform VFS mounting (FUSE/WinFsp/Fallback)
-- ✅ Real-time file operations with immediate sync
-- ✅ Cross-node file replication verification
-- ✅ Event-driven write monitoring (no timers)
-- ✅ Directory operations and nested file structures  
-- ✅ CLI VFS command testing
-- ✅ Automatic volume mounting and unmounting
-- ✅ Cluster formation with VFS integration
+**Comprehensive Test Coverage**:
+- 🏗️ **Cluster Setup**: Automated two-node cluster initialization with Docker Swarm-style commands
+- 📁 **VFS Mounting**: Cross-platform filesystem mounting (FUSE/WinFsp/Fallback modes)
+- ✍️ **File Operations**: Create, read, write, delete, rename operations with immediate sync
+- 📂 **Directory Operations**: Recursive directory creation, nested file structures
+- ⚡ **Real-Time Sync**: Event-driven file change detection and cross-node replication
+- 🔄 **Modification Testing**: Multiple file edits with line-by-line sync verification
+- 🚀 **Performance Testing**: Batch file operations and replication rate measurement
+- 🎛️ **VFS Commands**: Mount, unmount, status, sync command validation
+- 🧹 **Cleanup Testing**: Graceful VFS unmounting and resource cleanup
+
+**Test Validation**:
+- ✅ **File Replication**: Verifies files written on Node 1 appear on Node 2
+- ✅ **Event Processing**: Confirms real-time sync without timer polling
+- ✅ **Cross-Node Consistency**: Validates identical file content across nodes
+- ✅ **VFS Integration**: Tests filesystem-level operations through mounted volumes
+- ✅ **Error Handling**: Graceful handling of FUSE/WinFsp availability
+- ✅ **Resource Management**: Proper cleanup of processes and mount points
+
+**Test Output Example**:
+```
+[INFO] Starting GalleonFS VFS and Replication Test
+[SUCCESS] FUSE detected - full VFS functionality available  
+[INFO] Building GalleonFS...
+[SUCCESS] GalleonFS build completed
+[INFO] Starting Node1 daemon...
+[SUCCESS] Node1 daemon started (PID: 12345)
+[INFO] Initializing cluster on Node 1...
+[SUCCESS] Cluster initialized on Node 1
+[INFO] Creating volume 'test-vfs-volume'...
+[SUCCESS] Test volume created
+[INFO] Test 1: Creating file on Node 1...
+[SUCCESS] File created and readable on Node 1
+[SUCCESS] File replicated successfully to Node 2
+[INFO] Performance test: 9/10 files replicated to Node 2
+[SUCCESS] Performance test shows good replication rate
+[SUCCESS] VFS and replication testing completed!
+```
+
+The test scripts automatically handle:
+- Building GalleonFS binaries
+- Starting daemon processes with proper IPC configuration
+- Cluster initialization and peer joining
+- Volume creation with replication settings
+- VFS mounting on both nodes
+- File operation testing and verification
+- Performance benchmarking
+- Graceful cleanup and process termination
 
 ### Basic Cluster Testing
 
@@ -806,6 +851,68 @@ df -h
 # Check system resources
 top
 iostat -x 1
+```
+
+### VFS Testing Troubleshooting
+
+**VFS Mount Failures**:
+```bash
+# Check FUSE availability (Linux/macOS)
+which fusermount
+ls -la /dev/fuse
+
+# Install FUSE if missing (Ubuntu/Debian)
+sudo apt-get install fuse3 libfuse3-dev
+
+# Install FUSE if missing (macOS)
+brew install --cask osxfuse
+
+# Check WinFsp availability (Windows)
+Get-Service -Name "WinFsp.Launcher"
+```
+
+**Test Script Issues**:
+```bash
+# Run with debug output for more detail
+RUST_LOG=debug ./test-vfs.sh
+
+# Check for port conflicts
+netstat -tulnp | grep -E "(8081|8082|8091|8092)"
+
+# Force cleanup if test fails
+pkill -f galleonfs
+rm -rf test_vfs_node*_storage test_vfs_node*_mount
+
+# Windows cleanup
+Get-Process -Name "*galleonfs*" | Stop-Process -Force
+Remove-Item -Recurse -Force test_vfs_node*
+```
+
+**File Replication Issues**:
+```bash
+# Verify cluster connectivity
+galleonfs cluster status
+
+# Check VFS mount status
+galleonfs vfs list
+
+# Force synchronization
+galleonfs vfs sync
+
+# Check daemon logs for errors
+tail -f node1_daemon.log node2_daemon.log
+```
+
+**Performance Issues**:
+```bash
+# Check available memory
+free -h
+
+# Monitor file system usage
+watch -n 1 'galleonfs volume list; galleonfs vfs list'
+
+# Check for storage conflicts
+lsof | grep galleonfs
 ```
 
 ## Configuration Examples
