@@ -18,7 +18,7 @@ GalleonFS now includes a revolutionary cross-platform VFS that presents volumes 
 ### VFS Architecture
 
 ```
-Application Layer    │ File Operations (read, write, mkdir, etc.)
+Application Layer   │ File Operations (read, write, mkdir, etc.)
                     │
 VFS Interface       │ Cross-Platform VFS (FUSE/WinFsp/Fallback)
                     │
