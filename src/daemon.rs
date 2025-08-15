@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     storage::FileStorageEngine,
+    cross_platform_vfs::GalleonVFS,
     GalleonFS,
     PersistenceLevel,
     ReplicationStrategy,
@@ -135,6 +136,7 @@ pub struct GalleonDaemon {
     config: DaemonConfig,
     galleonfs: Arc<GalleonFS>,
     start_time: std::time::Instant,
+    vfs_instances: Arc<tokio::sync::RwLock<HashMap<Uuid, GalleonVFS>>>,
 }
 
 impl GalleonDaemon {
@@ -156,6 +158,7 @@ impl GalleonDaemon {
             config,
             galleonfs,
             start_time: std::time::Instant::now(),
+            vfs_instances: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
         })
     }
 
@@ -179,11 +182,14 @@ impl GalleonDaemon {
             }
         });
 
-        // Start mount manager if configured
+        // Start mount manager and VFS if configured
         if let Some(base_mount_point) = &self.config.mount_point {
-            info!("Starting mount manager at: {:?}", base_mount_point);
+            info!("Starting mount manager and VFS at: {:?}", base_mount_point);
             std::fs::create_dir_all(base_mount_point)?;
             let _mount_manager = self.galleonfs.create_mount_manager();
+            
+            // Start VFS auto-mounting for existing volumes
+            self.start_vfs_auto_mount(base_mount_point.clone()).await?;
         }
 
         // Start IPC service
@@ -501,5 +507,79 @@ impl GalleonDaemon {
         
         info!("Default storage classes created successfully");
         Ok(())
+    }
+
+    /// Start VFS auto-mounting for volumes
+    async fn start_vfs_auto_mount(&self, base_mount_point: PathBuf) -> Result<()> {
+        info!("Starting VFS auto-mount service");
+        
+        let galleonfs = Arc::clone(&self.galleonfs);
+        let vfs_instances = Arc::clone(&self.vfs_instances);
+        
+        tokio::spawn(async move {
+            loop {
+                // Check for volumes that need VFS mounting
+                match galleonfs.list_volumes().await {
+                    Ok(volumes) => {
+                        let mut vfs_map = vfs_instances.write().await;
+                        
+                        for volume in volumes {
+                            if !vfs_map.contains_key(&volume.id) {
+                                match Self::create_and_mount_vfs(
+                                    &volume, 
+                                    &base_mount_point, 
+                                    &galleonfs
+                                ).await {
+                                    Ok(vfs) => {
+                                        info!("VFS mounted for volume: {} at {}", 
+                                              volume.name, 
+                                              base_mount_point.join(&volume.name).display());
+                                        vfs_map.insert(volume.id, vfs);
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to mount VFS for volume {}: {}", volume.name, e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to list volumes for VFS auto-mount: {}", e);
+                    }
+                }
+                
+                // Check every 30 seconds for new volumes
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+            }
+        });
+        
+        Ok(())
+    }
+    
+    /// Create and mount a VFS for a volume
+    async fn create_and_mount_vfs(
+        volume: &Volume, 
+        base_mount_point: &PathBuf, 
+        galleonfs: &Arc<GalleonFS>
+    ) -> Result<GalleonVFS> {
+        use crate::cross_platform_vfs;
+        
+        // Create VFS instance
+        let mut vfs = cross_platform_vfs::create_cross_platform_vfs(
+            volume.id, 
+            galleonfs.clone()
+        ).await?;
+        
+        // Create mount point directory
+        let volume_mount_point = base_mount_point.join(&volume.name);
+        std::fs::create_dir_all(&volume_mount_point)?;
+        
+        // Mount the VFS
+        vfs.mount(&volume_mount_point).await?;
+        
+        info!("Cross-platform VFS mounted for volume '{}' at {}", 
+              volume.name, volume_mount_point.display());
+        
+        Ok(vfs)
     }
 }

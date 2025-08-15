@@ -54,6 +54,12 @@ pub enum Commands {
         #[command(subcommand)]
         action: StorageClassCommands,
     },
+    
+    /// Virtual filesystem management commands
+    VFS {
+        #[command(subcommand)]
+        action: VFSCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -188,6 +194,44 @@ pub enum StorageClassCommands {
     },
 }
 
+#[derive(Subcommand)]
+pub enum VFSCommands {
+    /// Mount a volume as a virtual filesystem
+    Mount {
+        /// Volume ID or name to mount
+        volume: String,
+        
+        /// Mount point directory  
+        #[arg(short, long)]
+        mount_point: PathBuf,
+        
+        /// Mount as read-only
+        #[arg(short, long)]
+        readonly: bool,
+    },
+    
+    /// Unmount a virtual filesystem
+    Unmount {
+        /// Volume ID, name, or mount point to unmount
+        target: String,
+    },
+    
+    /// List all mounted virtual filesystems
+    List,
+    
+    /// Get status of a mounted VFS
+    Status {
+        /// Volume ID, name, or mount point
+        target: String,
+    },
+    
+    /// Force sync all pending writes to storage
+    Sync {
+        /// Volume ID, name, or mount point (optional, syncs all if not specified)
+        target: Option<String>,
+    },
+}
+
 #[derive(Debug, Clone, ValueEnum)]
 pub enum CliVolumeType {
     Ephemeral,
@@ -230,6 +274,9 @@ impl GalleonClient {
             }
             Commands::StorageClass { action } => {
                 self.handle_storage_class_command(action).await
+            }
+            Commands::VFS { action } => {
+                self.handle_vfs_command(action).await
             }
         }
     }
@@ -777,5 +824,54 @@ impl GalleonClient {
             // No suffix, assume bytes
             Ok(size_str.parse::<u64>()?)
         }
+    }
+
+    /// Handle VFS management commands  
+    async fn handle_vfs_command(&self, action: VFSCommands) -> Result<()> {
+        match action {
+            VFSCommands::Mount { volume, mount_point, readonly } => {
+                println!("Mounting volume '{}' as VFS at {}", volume, mount_point.display());
+                if readonly {
+                    println!("Note: Mounting in read-only mode");
+                }
+                
+                // For now, this is a placeholder - the actual VFS mounting is handled by the daemon
+                // when it auto-mounts volumes at the configured mount point
+                println!("VFS mounting is automatically handled by the daemon when volumes are created.");
+                println!("Use 'galleonfs vfs list' to see currently mounted VFS instances.");
+            }
+            
+            VFSCommands::Unmount { target } => {
+                println!("Unmounting VFS: {}", target);
+                // Placeholder - would send unmount command to daemon
+                println!("VFS unmounting functionality will be implemented in future versions.");
+            }
+            
+            VFSCommands::List => {
+                println!("Listing mounted virtual filesystems...");
+                // Placeholder - would list VFS instances from daemon
+                println!("VFS listing functionality will be implemented in future versions.");
+                println!("Currently, VFS instances are automatically mounted at the daemon's configured mount point.");
+            }
+            
+            VFSCommands::Status { target } => {
+                println!("Getting VFS status for: {}", target);
+                // Placeholder - would get VFS status from daemon
+                println!("VFS status functionality will be implemented in future versions.");
+            }
+            
+            VFSCommands::Sync { target } => {
+                if let Some(target) = target {
+                    println!("Syncing VFS: {}", target);
+                } else {
+                    println!("Syncing all VFS instances...");
+                }
+                // Placeholder - would trigger VFS sync
+                println!("VFS sync functionality will be implemented in future versions.");
+                println!("Note: VFS writes are automatically synced in real-time to GalleonFS storage.");
+            }
+        }
+        
+        Ok(())
     }
 }

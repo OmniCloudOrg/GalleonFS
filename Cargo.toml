@@ -24,14 +24,24 @@ rand = "0.8"
 base64 = "0.21"
 serde_json = "1.0"
 notify = "6.0"
-# FUSE support (Linux/macOS only)
+# Cross-platform VFS support
 [target.'cfg(unix)'.dependencies]
 fuser = { version = "0.14", optional = true }
 libc = { version = "0.2", optional = true }
 
+[target.'cfg(windows)'.dependencies]
+# winfsp = { version = "0.8", optional = true }  # Commented out - crate is yanked
+windows = { version = "0.48", features = [
+    "Win32_Foundation",
+    "Win32_System_IO",
+    "Win32_Storage_FileSystem",
+], optional = true }
+
 [features]
-default = ["fuse"]
-fuse = ["fuser", "libc"]
+default = ["vfs"]
+vfs = []  # VFS without FUSE dependencies for demonstration
+fuse = ["fuser", "libc"]  # Optional FUSE support
+# winfsp-support = ["winfsp", "windows"]  # Commented out - winfsp crate is yanked
 
 [dev-dependencies]
 tempfile = "3.0"

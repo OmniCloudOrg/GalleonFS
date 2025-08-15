@@ -22,6 +22,7 @@ pub mod replication_mount_test;
 pub mod daemon;
 pub mod cli;
 pub mod cluster;
+pub mod cross_platform_vfs;
 
 #[cfg(all(unix, feature = "fuse"))]
 pub mod fuse_fs;
