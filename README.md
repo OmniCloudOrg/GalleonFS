@@ -108,7 +108,7 @@ galleonfs volume mount db-data /app/database --options rw,encrypted
 # Unmount volumes
 galleonfs volume unmount web-data
 galleonfs volume unmount /app/database
-
+```
 ### VFS Operations
 
 **Working with VFS-Mounted Volumes**:
