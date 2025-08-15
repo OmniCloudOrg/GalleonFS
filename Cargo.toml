@@ -23,6 +23,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 base64 = "0.21"
 serde_json = "1.0"
+notify = "6.0"
 # FUSE support (Linux/macOS only)
 [target.'cfg(unix)'.dependencies]
 fuser = { version = "0.14", optional = true }

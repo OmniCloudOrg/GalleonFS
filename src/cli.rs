@@ -140,6 +140,21 @@ pub enum ClusterCommands {
     
     /// List all peers in the cluster
     Peers,
+    
+    /// Add a replication peer
+    AddPeer {
+        /// Address of the peer to add for replication
+        peer_address: String,
+    },
+    
+    /// Remove a replication peer
+    RemovePeer {
+        /// Address of the peer to remove from replication
+        peer_address: String,
+    },
+    
+    /// List current replication peers
+    ReplicationPeers,
 }
 
 #[derive(Subcommand)]
@@ -505,6 +520,64 @@ impl GalleonClient {
                     }
                     IpcResponse::Error(err) => {
                         error!("Failed to get cluster peers: {}", err);
+                        return Err(anyhow::anyhow!(err));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                    }
+                }
+            }
+            
+            ClusterCommands::AddPeer { peer_address } => {
+                let message = IpcMessage::AddReplicationPeer { peer_address: peer_address.clone() };
+                
+                match self.send_message(message).await? {
+                    IpcResponse::Success => {
+                        println!("Successfully added replication peer: {}", peer_address);
+                    }
+                    IpcResponse::Error(err) => {
+                        error!("Failed to add replication peer: {}", err);
+                        return Err(anyhow::anyhow!(err));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                    }
+                }
+            }
+            
+            ClusterCommands::RemovePeer { peer_address } => {
+                let message = IpcMessage::RemoveReplicationPeer { peer_address: peer_address.clone() };
+                
+                match self.send_message(message).await? {
+                    IpcResponse::Success => {
+                        println!("Successfully removed replication peer: {}", peer_address);
+                    }
+                    IpcResponse::Error(err) => {
+                        error!("Failed to remove replication peer: {}", err);
+                        return Err(anyhow::anyhow!(err));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected response from daemon"));
+                    }
+                }
+            }
+            
+            ClusterCommands::ReplicationPeers => {
+                let message = IpcMessage::ListReplicationPeers;
+                
+                match self.send_message(message).await? {
+                    IpcResponse::ReplicationPeers(peers) => {
+                        println!("Replication Peers:");
+                        if peers.is_empty() {
+                            println!("  (No replication peers configured)");
+                        } else {
+                            for peer in peers {
+                                println!("  - {}", peer);
+                            }
+                        }
+                    }
+                    IpcResponse::Error(err) => {
+                        error!("Failed to get replication peers: {}", err);
                         return Err(anyhow::anyhow!(err));
                     }
                     _ => {

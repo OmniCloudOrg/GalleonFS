@@ -94,6 +94,12 @@ pub enum IpcMessage {
     CreateStorageClass { storage_class: StorageClass },
     CreateStorageClassFromFile { config_file: PathBuf },
     ListStorageClasses,
+    
+    // Replication management
+    UpdateReplicationPeers { peer_addresses: Vec<String> },
+    AddReplicationPeer { peer_address: String },
+    RemoveReplicationPeer { peer_address: String },
+    ListReplicationPeers,
 }
 
 /// IPC response types
@@ -120,6 +126,7 @@ pub enum IpcResponse {
         volume_id: Uuid, 
         mount_path: PathBuf,
     },
+    ReplicationPeers(Vec<String>),
     Error(String),
 }
 
@@ -424,6 +431,26 @@ impl GalleonDaemon {
             
             IpcMessage::Restart => {
                 IpcResponse::Error("Daemon restart not yet implemented. Please stop and start manually.".to_string())
+            }
+            
+            IpcMessage::UpdateReplicationPeers { peer_addresses } => {
+                galleonfs.update_replication_peers(peer_addresses).await;
+                IpcResponse::Success
+            }
+            
+            IpcMessage::AddReplicationPeer { peer_address } => {
+                galleonfs.add_replication_peer(peer_address).await;
+                IpcResponse::Success
+            }
+            
+            IpcMessage::RemoveReplicationPeer { peer_address } => {
+                galleonfs.remove_replication_peer(&peer_address).await;
+                IpcResponse::Success
+            }
+            
+            IpcMessage::ListReplicationPeers => {
+                let peers = galleonfs.get_replication_peers().await;
+                IpcResponse::ReplicationPeers(peers)
             }
         }
     }

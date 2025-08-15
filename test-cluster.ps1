@@ -263,6 +263,16 @@ function Main {
         Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE1_IPC, "cluster", "status") -Description "Getting cluster status from Node 1"
         Write-Host ""
         
+        # Step 3.5: Set up replication peers for volume synchronization
+        Write-Info "Step 3.5: Setting up replication peer relationship"
+        Write-Host "=================================================="
+        Write-Info "Adding Node 2 as replication peer to Node 1"
+        Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE1_IPC, "cluster", "add-peer", $NODE2_BIND) -Description "Adding Node 2 as replication peer to Node 1"
+        
+        Write-Info "Listing replication peers on Node 1"
+        Invoke-GalleonCommand -BinaryPath $binaryPath -Arguments @("--daemon-address", $NODE1_IPC, "cluster", "replication-peers") -Description "Listing replication peers on Node 1"
+        Write-Host ""
+        
         # Step 4: Create a replicated volume
         Write-Info "Step 4: Creating replicated volume"
         Write-Host "================================="

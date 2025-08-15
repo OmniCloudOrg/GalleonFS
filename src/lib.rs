@@ -28,6 +28,7 @@ pub mod fuse_fs;
 
 #[cfg(windows)]
 pub mod virtual_fs;
+pub mod vfs_service;
 
 // Core Volume Types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -707,5 +708,22 @@ impl GalleonFS {
     // Service Management
     pub async fn run(&self, bind_address: String) -> Result<()> {
         self.replication_service.run(bind_address, self.replication_strategy).await
+    }
+
+    // Replication Management
+    pub async fn add_replication_peer(&self, peer_address: String) {
+        self.replication_service.add_peer_address(peer_address).await;
+    }
+
+    pub async fn remove_replication_peer(&self, peer_address: &str) {
+        self.replication_service.remove_peer_address(peer_address).await;
+    }
+
+    pub async fn update_replication_peers(&self, peer_addresses: Vec<String>) {
+        self.replication_service.update_peer_addresses(peer_addresses).await;
+    }
+
+    pub async fn get_replication_peers(&self) -> Vec<String> {
+        self.replication_service.get_peer_addresses().await
     }
 }
