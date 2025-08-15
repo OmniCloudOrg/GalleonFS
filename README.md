@@ -652,8 +652,6 @@ async fn start_vfs_auto_mount(&self, base_mount_point: PathBuf) -> Result<()> {
 4. **Transparent Replication**: File changes automatically replicated
 5. **Developer Friendly**: Standard filesystem APIs for application integration
 
-```
-
 ## Built-in Storage Classes
 
 GalleonFS automatically creates default storage classes:
