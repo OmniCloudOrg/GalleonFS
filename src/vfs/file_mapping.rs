@@ -422,7 +422,8 @@ impl FileMapper {
     async fn allocate_first_fit(&self, _shard_id: u32) -> Result<u64> {
         // Simple first-fit: return next available block
         // TODO: Implement proper bitmap-based allocation
-        Ok(rand::random::<u64>() % super::MAX_BLOCKS_PER_SHARD)
+        let mut rng = rand::thread_rng();
+        Ok(rng.gen::<u64>() % super::MAX_BLOCKS_PER_SHARD)
     }
 
     async fn allocate_best_fit(&self, shard_id: u32) -> Result<u64> {
