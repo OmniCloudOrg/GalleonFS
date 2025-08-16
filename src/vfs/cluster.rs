@@ -387,17 +387,24 @@ impl ClusterManager {
                 let mut selected = Vec::new();
                 let zones: Vec<_> = zone_nodes.keys().cloned().collect();
                 
-                for i in 0..volume.replication_factor as usize {
-                    if let Some(zone) = zones.get(i % zones.len()) {
-                        if let Some(nodes) = zone_nodes.get(zone) {
-                            if let Some(node_id) = nodes.get(i / zones.len()) {
-                                selected.push(*node_id);
+                if zones.is_empty() {
+                    // No zones available, fall back to balanced placement
+                    active_peers.into_iter()
+                        .take(volume.replication_factor as usize)
+                        .map(|p| p.id)
+                        .collect()
+                } else {
+                    for i in 0..volume.replication_factor as usize {
+                        if let Some(zone) = zones.get(i % zones.len()) {
+                            if let Some(nodes) = zone_nodes.get(zone) {
+                                if let Some(node_id) = nodes.get(i / zones.len()) {
+                                    selected.push(*node_id);
+                                }
                             }
                         }
                     }
+                    selected
                 }
-
-                selected
             }
             PlacementPolicy::Custom(_labels) => {
                 // For now, fall back to balanced placement

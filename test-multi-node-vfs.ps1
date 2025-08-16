@@ -142,7 +142,7 @@ function Cleanup-TestEnvironment {
                     Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
                 }
                 catch {
-                    Write-TestError "Failed to remove $dir: $_"
+                    Write-TestError "Failed to remove $dir`: $($_.Exception.Message)"
                 }
             }
         }
