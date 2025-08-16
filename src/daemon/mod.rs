@@ -26,6 +26,8 @@ pub struct Daemon {
     volumes: Arc<Mutex<HashMap<Uuid, Volume>>>,
     volume_watchers: Arc<Mutex<HashMap<Uuid, VolumeWatcher>>>,
     event_tx: Arc<Mutex<Option<mpsc::UnboundedSender<(Uuid, Event)>>>>,
+    vfs_manager: Arc<Mutex<Option<Arc<VfsManager>>>>,
+    node_id: Uuid,
 }
 
 impl Daemon {
