@@ -1,7 +1,8 @@
-use crate::vfs::replication::types::*;
+use crate::vfs::replication::types::{ReplicationStatus, ReplicationState};
 use crate::vfs::{VfsVolume, ClusterManager, ConsistencyLevel};
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -11,9 +12,81 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::workload::{WorkloadAnalyzer, AccessType};
-use super::placement::PlacementEngine;
-use super::pipeline::ReplicationPipeline;
-use super::tracker::PerformanceTracker;
+use super::placement::{PlacementEngine, DynamicPlacement};
+use super::pipeline::{ReplicationPipeline, ReplicationTask};
+use super::tracker::{PerformanceTracker, ReplicationMetrics};
+
+/// Dynamic context-aware replication system that builds on simple clustering
+/// This provides intelligent replication based on cluster topology, workload patterns,
+/// and data access patterns for petabyte-scale performance
+pub struct ReplicationManager {
+    /// Reference to the simple cluster manager for basic membership
+    pub cluster_manager: Arc<ClusterManager>,
+    /// Dynamic replication strategies per volume
+    pub replication_strategies: Arc<RwLock<HashMap<Uuid, ReplicationStrategy>>>,
+    /// Real-time workload analysis for context-aware decisions
+    pub workload_analyzer: Arc<WorkloadAnalyzer>,
+    /// Topology-aware placement engine
+    pub placement_engine: Arc<PlacementEngine>,
+    /// Replication pipeline for efficient data movement
+    pub replication_pipeline: Arc<ReplicationPipeline>,
+    /// Performance metrics for adaptive optimization
+    pub performance_tracker: Arc<PerformanceTracker>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicationStrategy {
+    /// Volume this strategy applies to
+    pub volume_id: Uuid,
+    /// Current replication configuration
+    pub config: ReplicationConfig,
+    /// Dynamic placement based on current cluster state
+    pub placement: DynamicPlacement,
+    /// Performance-based optimizations
+    pub optimizations: ReplicationOptimizations,
+    /// Last strategy update timestamp
+    pub last_updated: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicationConfig {
+    /// Base replication factor from volume definition
+    pub base_replicas: u8,
+    /// Dynamic replica count based on workload
+    pub current_replicas: u8,
+    /// Consistency requirements
+    pub consistency_level: ConsistencyLevel,
+    /// Cross-zone replication settings
+    pub cross_zone_config: CrossZoneConfig,
+    /// Hot data replication (frequently accessed)
+    pub hot_data_replicas: u8,
+    /// Cold data replication (infrequently accessed)
+    pub cold_data_replicas: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossZoneConfig {
+    /// Minimum zones for replicas
+    pub min_zones: u8,
+    /// Maximum latency tolerance for cross-zone writes
+    pub max_latency_ms: u32,
+    /// Bandwidth throttling for cross-zone replication
+    pub bandwidth_limit_mbps: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicationOptimizations {
+    /// Use delta compression for similar blocks
+    pub delta_compression: bool,
+    /// Batch small writes for efficiency
+    pub write_batching: bool,
+    /// Async replication for non-critical data
+    pub async_replication: bool,
+    /// Prefetch based on access patterns
+    pub predictive_prefetch: bool,
+    /// Deduplication across replicas
+    pub cross_replica_dedup: bool,
+}
 
 impl ReplicationManager {
     pub async fn new(cluster_manager: Arc<ClusterManager>) -> Result<Self> {

@@ -1,5 +1,3 @@
-use crate::vfs::replication::types::*;
-
 use anyhow::Result;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -11,6 +9,75 @@ use uuid::Uuid;
 pub enum AccessType {
     Read,
     Write,
+}
+
+/// Analyzes workload patterns to inform replication decisions
+pub struct WorkloadAnalyzer {
+    /// Access pattern tracking per block
+    pub access_patterns: Arc<RwLock<HashMap<(Uuid, u64), AccessPattern>>>,
+    /// Temporal access analysis
+    pub temporal_analyzer: Arc<Mutex<TemporalAnalyzer>>,
+    /// Spatial locality analysis
+    pub spatial_analyzer: Arc<Mutex<SpatialAnalyzer>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccessPattern {
+    /// Read frequency
+    pub read_frequency: f64,
+    /// Write frequency  
+    pub write_frequency: f64,
+    /// Last access time
+    pub last_access: Instant,
+    /// Access locality score
+    pub locality_score: f64,
+    /// Predictable access pattern
+    pub predictability: f64,
+}
+
+#[derive(Debug)]
+pub struct TemporalAnalyzer {
+    /// Recent access history for pattern detection
+    pub access_history: VecDeque<(Uuid, u64, Instant)>, // (volume_id, block_id, timestamp)
+    /// Detected patterns (hourly, daily, etc.)
+    pub patterns: HashMap<Uuid, Vec<TemporalPattern>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TemporalPattern {
+    /// Pattern period (e.g., daily = 86400 seconds)
+    pub period_seconds: u64,
+    /// Confidence in pattern (0.0 - 1.0)
+    pub confidence: f64,
+    /// Peak access hours
+    pub peak_hours: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct SpatialAnalyzer {
+    /// Block access locality tracking
+    pub locality_map: HashMap<Uuid, HashMap<u64, HashSet<u64>>>, // volume -> block -> nearby_blocks
+    /// Sequential access detection
+    pub sequential_patterns: HashMap<Uuid, Vec<SequentialPattern>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SequentialPattern {
+    /// Starting block
+    pub start_block: u64,
+    /// Length of sequential access
+    pub length: u64,
+    /// Access direction (forward/backward)
+    pub direction: AccessDirection,
+    /// Frequency of this pattern
+    pub frequency: u32,
+}
+
+#[derive(Debug, Clone)]
+pub enum AccessDirection {
+    Forward,
+    Backward,
+    Random,
 }
 
 impl WorkloadAnalyzer {
