@@ -15,7 +15,7 @@ pub mod event_handler;
 
 pub use block_storage::*;
 pub use cluster::*;
-pub use replication::*;
+pub use replication::{*, types::*};
 pub use file_mapping::*;
 pub use event_handler::*;
 
