@@ -261,18 +261,45 @@ function Start-VfsDaemon {
 function Test-VfsVolumeOperations {
     param([string]$IpcAddress)
     
-    Write-TestStep "Testing VFS volume operations"
+    Write-TestStep "Testing VFS shared volume operations"
     
-    # Create test volume
-    Write-TestInfo "Creating test volume: $TestVolumeName"
-    $result = & ".\target\$BuildConfig\galleonfs.exe" --daemon-address $IpcAddress volume create $TestVolumeName --path $NODE1_MOUNT --size $VolumeSize
+    # Create shared test volume with replication
+    Write-TestInfo "Creating shared volume: $TestVolumeName with replication factor $ReplicationFactor"
+    $result = & ".\target\$BuildConfig\galleonfs.exe" --daemon-address $IpcAddress volume create $TestVolumeName --path $NODE1_MOUNT --size $VolumeSize --replication-factor $ReplicationFactor --shared
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to create volume: $result"
+        throw "Failed to create shared volume: $result"
     }
-    Write-TestSuccess "Volume created successfully"
+    Write-TestSuccess "Shared volume created successfully"
     
-    # List volumes
-    Write-TestInfo "Listing volumes"
+    # Wait for volume to be registered across cluster
+    Write-TestInfo "Waiting for volume registration across cluster (5 seconds)"
+    Start-Sleep -Seconds 5
+    
+    # Verify volume is accessible from all nodes
+    Write-TestInfo "Verifying volume access from all nodes"
+    $nodes = @(
+        @{ Name = "Node1"; IPC = $NODE1_IPC; Mount = $NODE1_MOUNT },
+        @{ Name = "Node2"; IPC = $NODE2_IPC; Mount = $NODE2_MOUNT },
+        @{ Name = "Node3"; IPC = $NODE3_IPC; Mount = $NODE3_MOUNT }
+    )
+    
+    foreach ($node in $nodes) {
+        Write-TestInfo "Checking volume access on $($node.Name)"
+        $result = & ".\target\$BuildConfig\galleonfs.exe" --daemon-address $node.IPC volume list --verbose
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to list volumes on $($node.Name): $result"
+        }
+        
+        # Verify the mount point exists and is accessible
+        if (-not (Test-Path $node.Mount)) {
+            throw "Mount point not accessible on $($node.Name): $($node.Mount)"
+        }
+        
+        Write-TestSuccess "Volume accessible on $($node.Name)"
+    }
+    
+    # List volumes with detailed info
+    Write-TestInfo "Listing volumes with cluster placement info"
     $result = & ".\target\$BuildConfig\galleonfs.exe" --daemon-address $IpcAddress volume list --verbose
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to list volumes: $result"
@@ -284,68 +311,254 @@ function Test-VfsVolumeOperations {
 }
 
 function Test-FileReplication {
-    Write-TestStep "Testing file replication across nodes"
+    Write-TestStep "Testing file replication across cluster nodes"
+    
+    # Define all test nodes for comprehensive replication testing
+    $allNodes = @(
+        @{ Name = "Node1"; Mount = $NODE1_MOUNT; IPC = $NODE1_IPC },
+        @{ Name = "Node2"; Mount = $NODE2_MOUNT; IPC = $NODE2_IPC },
+        @{ Name = "Node3"; Mount = $NODE3_MOUNT; IPC = $NODE3_IPC }
+    )
     
     # Create test files on Node 1
-    Write-TestInfo "Creating test files on Node 1"
+    Write-TestInfo "Creating test files on Node 1 for cluster replication"
     
-    # Simple text file
+    # Simple text file with timestamp for uniqueness
+    $timestamp = (Get-Date).ToString("yyyyMMdd-HHmmss-fff")
     $testFile1 = Join-Path $NODE1_MOUNT $TEST_FILES[0]
-    "Hello from GalleonFS VFS - Node 1!" | Out-File -FilePath $testFile1 -Encoding UTF8
+    "Hello from GalleonFS VFS - Node 1! Created at: $timestamp" | Out-File -FilePath $testFile1 -Encoding UTF8
     
-    # Another text file
+    # JSON metadata file
     $testFile2 = Join-Path $NODE1_MOUNT $TEST_FILES[1]
-    "Multi-node replication test - $(Get-Date)" | Out-File -FilePath $testFile2 -Encoding UTF8
+    $metadata = @{
+        created_by = "Node1"
+        timestamp = $timestamp
+        replication_test = $true
+        cluster_size = 3
+    } | ConvertTo-Json -Depth 2
+    $metadata | Out-File -FilePath $testFile2 -Encoding UTF8
     
-    # Large binary file
+    # Large binary file (increased size for better testing)
     $testFile3 = Join-Path $NODE1_MOUNT $TEST_FILES[2]
-    $largeData = [byte[]](1..1024 | ForEach-Object { Get-Random -Maximum 256 })
+    $largeData = [byte[]](1..4096 | ForEach-Object { Get-Random -Maximum 256 })
     [System.IO.File]::WriteAllBytes($testFile3, $largeData)
     
-    # Nested directory file
+    # Nested directory structure
     $testSubDir = Join-Path $NODE1_MOUNT "subdir"
     if (-not (Test-Path $testSubDir)) {
         New-Item -Path $testSubDir -ItemType Directory -Force | Out-Null
     }
     $testFile4 = Join-Path $NODE1_MOUNT $TEST_FILES[3]
-    "Nested file for directory replication test" | Out-File -FilePath $testFile4 -Encoding UTF8
+    "Nested file for directory replication test - Created: $timestamp" | Out-File -FilePath $testFile4 -Encoding UTF8
     
     Write-TestSuccess "Created test files on Node 1"
     
-    # Wait for replication
-    Write-TestInfo "Waiting for replication to propagate (10 seconds)"
-    Start-Sleep -Seconds 10
+    # Monitor replication progress across all nodes
+    Write-TestInfo "Monitoring replication across all cluster nodes"
+    $maxWaitTime = 30  # seconds
+    $checkInterval = 2  # seconds
+    $elapsedTime = 0
     
-    # Check replication on Node 2
-    Write-TestInfo "Verifying replication on Node 2"
-    $replicationSuccessful = $true
-    
-    foreach ($testFile in $TEST_FILES) {
-        $node1File = Join-Path $NODE1_MOUNT $testFile
-        $node2File = Join-Path $NODE2_MOUNT $testFile
+    while ($elapsedTime -lt $maxWaitTime) {
+        Start-Sleep -Seconds $checkInterval
+        $elapsedTime += $checkInterval
         
-        if (Test-Path $node1File) {
-            if (Test-Path $node2File) {
-                # Compare file contents
-                $node1Content = Get-Content -Path $node1File -Raw -ErrorAction SilentlyContinue
-                $node2Content = Get-Content -Path $node2File -Raw -ErrorAction SilentlyContinue
-                
-                if ($node1Content -eq $node2Content) {
-                    Write-TestSuccess "File replicated successfully: $testFile"
-                }
-                else {
-                    Write-TestError "File content mismatch: $testFile"
-                    $replicationSuccessful = $false
+        Write-TestInfo "Checking replication progress... ($elapsedTime/$maxWaitTime seconds)"
+        
+        $replicationComplete = $true
+        foreach ($node in $allNodes[1..2]) {  # Skip Node1 (source)
+            foreach ($testFile in $TEST_FILES) {
+                $nodeFile = Join-Path $node.Mount $testFile
+                if (-not (Test-Path $nodeFile)) {
+                    $replicationComplete = $false
+                    break
                 }
             }
-            else {
-                Write-TestError "File not replicated to Node 2: $testFile"
-                $replicationSuccessful = $false
-            }
+            if (-not $replicationComplete) { break }
+        }
+        
+        if ($replicationComplete) {
+            Write-TestSuccess "All files detected on all nodes after $elapsedTime seconds"
+            break
         }
     }
     
-    return $replicationSuccessful
+    # Comprehensive replication verification across all nodes
+    Write-TestInfo "Performing comprehensive replication verification"
+    $replicationSuccessful = $true
+    $replicationStats = @{
+        TotalFiles = $TEST_FILES.Count
+        SuccessfulReplications = 0
+        FailedReplications = 0
+        Details = @()
+    }
+    
+    foreach ($testFile in $TEST_FILES) {
+        $sourceFile = Join-Path $NODE1_MOUNT $testFile
+        $fileReplicationSuccess = $true
+        
+        if (-not (Test-Path $sourceFile)) {
+            Write-TestError "Source file missing on Node 1: $testFile"
+            $replicationSuccessful = $false
+            continue
+        }
+        
+        # Get source file content and metadata
+        if ($testFile -eq $TEST_FILES[2]) {  # Binary file
+            $sourceContent = [System.IO.File]::ReadAllBytes($sourceFile)
+            $sourceSize = $sourceContent.Length
+        } else {
+            $sourceContent = Get-Content -Path $sourceFile -Raw -ErrorAction SilentlyContinue
+            $sourceSize = (Get-Item $sourceFile).Length
+        }
+        
+        # Verify replication to each target node
+        foreach ($targetNode in $allNodes[1..2]) {  # Skip Node1 (source)
+            $targetFile = Join-Path $targetNode.Mount $testFile
+            
+            if (Test-Path $targetFile) {
+                # Compare content
+                if ($testFile -eq $TEST_FILES[2]) {  # Binary file
+                    $targetContent = [System.IO.File]::ReadAllBytes($targetFile)
+                    $contentMatch = ($sourceContent.Length -eq $targetContent.Length) -and 
+                                  (-not (Compare-Object $sourceContent $targetContent))
+                } else {
+                    $targetContent = Get-Content -Path $targetFile -Raw -ErrorAction SilentlyContinue
+                    $contentMatch = ($sourceContent -eq $targetContent)
+                }
+                
+                $targetSize = (Get-Item $targetFile).Length
+                
+                if ($contentMatch -and ($sourceSize -eq $targetSize)) {
+                    Write-TestSuccess "✓ File replicated correctly: $testFile -> $($targetNode.Name)"
+                } else {
+                    Write-TestError "✗ File content/size mismatch: $testFile -> $($targetNode.Name) (Source: $sourceSize bytes, Target: $targetSize bytes)"
+                    $fileReplicationSuccess = $false
+                    $replicationSuccessful = $false
+                }
+            } else {
+                Write-TestError "✗ File not replicated to $($targetNode.Name): $testFile"
+                $fileReplicationSuccess = $false
+                $replicationSuccessful = $false
+            }
+        }
+        
+        if ($fileReplicationSuccess) {
+            $replicationStats.SuccessfulReplications++
+        } else {
+            $replicationStats.FailedReplications++
+        }
+        
+        $replicationStats.Details += @{
+            File = $testFile
+            Success = $fileReplicationSuccess
+            SourceSize = $sourceSize
+        }
+    }
+    
+    # Test cross-node file creation (Node 2 creates file, verify on Node 1 and 3)
+    Write-TestInfo "Testing cross-node file creation (Node 2 -> Node 1, Node 3)"
+    $crossNodeFile = Join-Path $NODE2_MOUNT "cross_node_test.txt"
+    "File created on Node 2 for cross-node replication test - $timestamp" | Out-File -FilePath $crossNodeFile -Encoding UTF8
+    
+    Start-Sleep -Seconds 5
+    
+    $crossNodeSuccess = $true
+    foreach ($checkNode in @($allNodes[0], $allNodes[2])) {  # Node1 and Node3
+        $checkFile = Join-Path $checkNode.Mount "cross_node_test.txt"
+        if (Test-Path $checkFile) {
+            Write-TestSuccess "✓ Cross-node file replicated to $($checkNode.Name)"
+        } else {
+            Write-TestError "✗ Cross-node file not replicated to $($checkNode.Name)"
+            $crossNodeSuccess = $false
+        }
+    }
+    
+    # Report replication statistics
+    Write-TestInfo "=== Replication Test Results ==="
+    Write-TestInfo "Total Files Tested: $($replicationStats.TotalFiles)"
+    Write-TestInfo "Successful Replications: $($replicationStats.SuccessfulReplications)"
+    Write-TestInfo "Failed Replications: $($replicationStats.FailedReplications)"
+    $successRate = [math]::Round(($replicationStats.SuccessfulReplications / $replicationStats.TotalFiles) * 100, 2)
+    Write-TestInfo "Success Rate: $successRate%"
+    Write-TestInfo "Cross-node Creation Test: $(if ($crossNodeSuccess) { 'PASSED' } else { 'FAILED' })"
+    
+    return ($replicationSuccessful -and $crossNodeSuccess)
+}
+
+function Test-NetworkResilience {
+    Write-TestStep "Testing network replication resilience"
+    
+    # Create a test file to monitor during network disruption
+    $resilienceFile = Join-Path $NODE1_MOUNT "resilience_test.txt"
+    "Initial content for resilience testing - $(Get-Date)" | Out-File -FilePath $resilienceFile -Encoding UTF8
+    
+    Write-TestInfo "Waiting for initial replication"
+    Start-Sleep -Seconds 5
+    
+    # Verify initial replication
+    $node2File = Join-Path $NODE2_MOUNT "resilience_test.txt"
+    $node3File = Join-Path $NODE3_MOUNT "resilience_test.txt"
+    
+    if (-not ((Test-Path $node2File) -and (Test-Path $node3File))) {
+        Write-TestError "Initial replication failed for resilience test"
+        return $false
+    }
+    
+    Write-TestSuccess "Initial replication verified"
+    
+    # Simulate network partition by temporarily stopping Node 2
+    Write-TestInfo "Simulating network partition (temporarily stopping Node 2)"
+    $node2Process = $Global:DaemonProcesses | Where-Object { $_.Id -and -not $_.HasExited } | Select-Object -Skip 1 -First 1
+    
+    if ($node2Process) {
+        try {
+            $node2Process.Kill()
+            Write-TestInfo "Node 2 stopped for network partition simulation"
+            Start-Sleep -Seconds 3
+            
+            # Continue operations on Node 1 during partition
+            "Content added during partition - $(Get-Date)" | Add-Content -Path $resilienceFile
+            Write-TestInfo "Added content to file during network partition"
+            
+            # Wait and then restart Node 2
+            Start-Sleep -Seconds 5
+            Write-TestInfo "Restarting Node 2 to simulate network recovery"
+            
+            # Restart Node 2
+            $node2ProcessNew = Start-VfsDaemon -NodeName "Node2-Recovered" -StoragePath $NODE2_STORAGE -MountPath $NODE2_MOUNT -BindAddress $NODE2_BIND -IpcAddress $NODE2_IPC -PeerAddresses @($NODE1_BIND, $NODE3_BIND)
+            
+            if (Test-ServiceReady -ServiceName "Node 2 (Recovered)" -IpcAddress $NODE2_IPC -TimeoutSeconds 15) {
+                Write-TestSuccess "Node 2 successfully recovered"
+                
+                # Wait for partition healing and replication
+                Write-TestInfo "Waiting for partition healing and data synchronization"
+                Start-Sleep -Seconds 10
+                
+                # Verify data consistency after recovery
+                $node1Content = Get-Content -Path $resilienceFile -Raw
+                $node2ContentRecovered = Get-Content -Path $node2File -Raw -ErrorAction SilentlyContinue
+                
+                if ($node1Content -eq $node2ContentRecovered) {
+                    Write-TestSuccess "✓ Data consistency restored after network recovery"
+                    return $true
+                } else {
+                    Write-TestError "✗ Data inconsistency detected after network recovery"
+                    return $false
+                }
+            } else {
+                Write-TestError "Failed to restart Node 2"
+                return $false
+            }
+        }
+        catch {
+            Write-TestError "Error during network resilience test: $_"
+            return $false
+        }
+    } else {
+        Write-TestError "Could not identify Node 2 process for resilience test"
+        return $false
+    }
 }
 
 function Test-DynamicModification {
@@ -422,7 +635,7 @@ function Test-PerformanceMetrics {
         $replicatedFiles = (Get-ChildItem -Path $node2PerfDir -File).Count
         $replicationRate = [math]::Round(($replicatedFiles / 20.0) * 100, 2)
         
-        Write-TestInfo "Replication rate: $replicatedFiles/20 files ($replicationRate%)"
+        Write-TestInfo "Replication rate: $replicatedFiles/20 files ($replicationRate%%)"
         
         if ($replicationRate -ge 90) {
             Write-TestSuccess "Performance test shows good replication rate"
@@ -550,7 +763,16 @@ try {
         $testResults += $false
     }
     
-    # Test 3: Dynamic Modification
+    # Test 3: Network Resilience
+    try {
+        $testResults += Test-NetworkResilience
+    }
+    catch {
+        Write-TestError "Network resilience test failed: $_"
+        $testResults += $false
+    }
+    
+    # Test 4: Dynamic Modification
     try {
         $testResults += Test-DynamicModification
     }
@@ -559,7 +781,7 @@ try {
         $testResults += $false
     }
     
-    # Test 4: Performance Metrics
+    # Test 5: Performance Metrics
     try {
         $testResults += Test-PerformanceMetrics
     }
