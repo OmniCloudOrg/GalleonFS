@@ -173,8 +173,57 @@ impl Daemon {
 
         if let Some(volume_name) = volume_name {
             self.print_detailed_event_info(&volume_name, volume_id, &event).await;
+            
+            // Handle VFS integration for file events
+            self.handle_vfs_event(volume_id, &event).await;
         } else {
             error!("Received event for unknown volume: {}", volume_id);
+        }
+    }
+
+    async fn handle_vfs_event(&self, volume_id: Uuid, event: &Event) {
+        let vfs_manager_guard = self.vfs_manager.lock().await;
+        if let Some(ref vfs_manager) = *vfs_manager_guard {
+            for path in &event.paths {
+                if let Some(path_str) = path.to_str() {
+                    // Convert notify event to VFS event
+                    let vfs_event = match &event.kind {
+                        notify::EventKind::Create(_) => Some(VfsEvent::FileCreated {
+                            volume_id,
+                            path: path_str.to_string(),
+                            initial_size: 0,
+                            permissions: 0o644,
+                        }),
+                        notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
+                            // For data modifications, we'll use a write event with empty data
+                            // In practice, this would contain the actual changed data
+                            Some(VfsEvent::FileWritten {
+                                volume_id,
+                                path: path_str.to_string(),
+                                offset: 0,
+                                data: Vec::new(), // Would contain actual data in real implementation
+                                sync_required: false,
+                            })
+                        }
+                        notify::EventKind::Remove(_) => Some(VfsEvent::FileDeleted {
+                            volume_id,
+                            path: path_str.to_string(),
+                        }),
+                        _ => None,
+                    };
+
+                    if let Some(vfs_evt) = vfs_event {
+                        if let Err(e) = vfs_manager.handle_file_event(
+                            volume_id, 
+                            path, 
+                            0, // offset
+                            &[] // data - would be populated from actual file changes
+                        ).await {
+                            error!("❌ VFS event handling failed: {}", e);
+                        }
+                    }
+                }
+            }
         }
     }
 
