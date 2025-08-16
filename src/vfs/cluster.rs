@@ -50,7 +50,7 @@ pub struct NodeCapacity {
     pub iops_capability: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum NodeStatus {
     /// Node is healthy and accepting work
     Active,
@@ -474,6 +474,10 @@ impl ClusterManager {
     pub async fn unregister_volume(&self, _volume_id: Uuid) -> Result<()> {
         // TODO: Implement volume unregistration
         Ok(())
+    }
+
+    pub fn get_node_id(&self) -> Uuid {
+        self.node_id
     }
 
     /// Helper methods

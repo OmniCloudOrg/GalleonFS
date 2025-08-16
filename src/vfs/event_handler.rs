@@ -357,8 +357,8 @@ impl VfsEventHandler {
         Ok(())
     }
 
-    async fn handle_file_read(&self, volume_id: Uuid, path: &str, offset: u64, length: u64) -> Result<()> {
-        debug!("📖 Handling file read: path={}, offset={}, length={}", path, offset, length);
+    async fn handle_file_read(&self, _volume_id: Uuid, path: &str, _offset: u64, length: u64) -> Result<()> {
+        debug!("📖 Handling file read: path={}, length={}", path, length);
 
         let path_buf = std::path::PathBuf::from(path);
 

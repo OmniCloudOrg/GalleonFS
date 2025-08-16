@@ -1,6 +1,7 @@
 mod cli;
 mod core;
 mod daemon;
+mod vfs;
 
 #[tokio::main]
 async fn main() {

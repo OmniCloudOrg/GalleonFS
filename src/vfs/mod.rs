@@ -51,7 +51,7 @@ pub struct VfsVolumeMetadata {
     pub placement_policy: PlacementPolicy,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ConsistencyLevel {
     /// Eventual consistency - fastest writes
     Eventual,

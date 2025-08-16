@@ -52,7 +52,7 @@ impl Daemon {
         info!("🚀 Starting GalleonFS daemon with storage at: {:?}", storage_path);
 
         // Initialize VFS manager
-        let vfs_manager = Arc::new(VfsManager::new(storage_path, self.node_id).await?);
+        let vfs_manager: Arc<VfsManager> = Arc::new(VfsManager::new(storage_path, self.node_id).await?);
         {
             let mut vfs_guard = self.vfs_manager.lock().await;
             *vfs_guard = Some(vfs_manager.clone());
@@ -95,7 +95,7 @@ impl Daemon {
 
         // Create VFS volume if VFS manager is available
         let vfs_manager_guard = self.vfs_manager.lock().await;
-        if let Some(ref vfs_manager) = *vfs_manager_guard {
+        if let Some(ref vfs_manager) = &*vfs_manager_guard {
             // Calculate volume size (default to 1GB if not specified)
             let volume_size = 1024 * 1024 * 1024; // 1GB default
             
@@ -183,7 +183,7 @@ impl Daemon {
 
     async fn handle_vfs_event(&self, volume_id: Uuid, event: &Event) {
         let vfs_manager_guard = self.vfs_manager.lock().await;
-        if let Some(ref vfs_manager) = *vfs_manager_guard {
+        if let Some(ref vfs_manager) = &*vfs_manager_guard {
             for path in &event.paths {
                 if let Some(path_str) = path.to_str() {
                     // Convert notify event to VFS event

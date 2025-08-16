@@ -520,7 +520,7 @@ impl ReplicationManager {
         // Create replication task
         let task = ReplicationTask {
             id: Uuid::new_v4(),
-            source_node: self.cluster_manager.node_id,
+            source_node: self.cluster_manager.get_node_id(),
             destination_nodes: self.select_destination_nodes(&strategy, block_id).await?,
             volume_id,
             shard_id,
