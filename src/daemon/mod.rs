@@ -8,6 +8,8 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::vfs::{VfsManager, VfsEvent};
+
 pub mod volume;
 pub mod watcher;
 pub mod ipc;
