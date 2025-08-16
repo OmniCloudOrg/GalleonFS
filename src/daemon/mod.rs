@@ -45,7 +45,18 @@ impl Daemon {
     }
 
     pub async fn start(&self) -> Result<()> {
-        info!("Starting GalleonFS daemon...");
+        self.start_with_storage_path(std::path::PathBuf::from("./galleonfs_storage")).await
+    }
+
+    pub async fn start_with_storage_path(&self, storage_path: std::path::PathBuf) -> Result<()> {
+        info!("🚀 Starting GalleonFS daemon with storage at: {:?}", storage_path);
+
+        // Initialize VFS manager
+        let vfs_manager = Arc::new(VfsManager::new(storage_path, self.node_id).await?);
+        {
+            let mut vfs_guard = self.vfs_manager.lock().await;
+            *vfs_guard = Some(vfs_manager.clone());
+        }
 
         let (tx, mut rx) = mpsc::unbounded_channel::<(Uuid, Event)>();
         *self.event_tx.lock().await = Some(tx);
@@ -57,7 +68,7 @@ impl Daemon {
             }
         });
 
-        info!("GalleonFS daemon started successfully");
+        info!("✅ GalleonFS daemon started successfully with VFS integration");
         Ok(())
     }
 
