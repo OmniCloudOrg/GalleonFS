@@ -88,10 +88,29 @@ impl Daemon {
     }
 
     pub async fn create_volume(&self, name: String, mount_path: PathBuf) -> Result<Uuid> {
-        let volume = Volume::new(name, mount_path.clone())?;
+        let volume = Volume::new(name.clone(), mount_path.clone())?;
         let volume_id = volume.id();
 
-        info!("Creating volume: {} at path: {:?}", volume.name(), mount_path);
+        info!("📁 Creating volume '{}' at path: {:?}", name, mount_path);
+
+        // Create VFS volume if VFS manager is available
+        let vfs_manager_guard = self.vfs_manager.lock().await;
+        if let Some(ref vfs_manager) = *vfs_manager_guard {
+            // Calculate volume size (default to 1GB if not specified)
+            let volume_size = 1024 * 1024 * 1024; // 1GB default
+            
+            // Create VFS volume with intelligent sharding
+            let vfs_volume = vfs_manager.create_volume(
+                name.clone(),
+                volume_size,
+                3, // Default replication factor
+                "encrypted-storage".to_string(), // Default storage class
+            ).await?;
+
+            info!("🗄️ VFS volume created: {} shards, {} blocks", 
+                  vfs_volume.shard_count, vfs_volume.block_count);
+        }
+        drop(vfs_manager_guard);
 
         let mut volumes = self.volumes.lock().await;
         volumes.insert(volume_id, volume);
@@ -102,7 +121,7 @@ impl Daemon {
             volume_watchers.insert(volume_id, watcher);
         }
 
-        info!("Volume created successfully with ID: {}", volume_id);
+        info!("✅ Volume created successfully with ID: {}", volume_id);
         Ok(volume_id)
     }
 
