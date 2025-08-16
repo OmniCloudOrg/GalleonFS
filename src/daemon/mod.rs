@@ -32,10 +32,15 @@ pub struct Daemon {
 
 impl Daemon {
     pub fn new() -> Self {
+        let node_id = Uuid::new_v4();
+        info!("🚀 Creating new daemon with node ID: {}", node_id);
+        
         Self {
             volumes: Arc::new(Mutex::new(HashMap::new())),
             volume_watchers: Arc::new(Mutex::new(HashMap::new())),
             event_tx: Arc::new(Mutex::new(None)),
+            vfs_manager: Arc::new(Mutex::new(None)),
+            node_id,
         }
     }
 
