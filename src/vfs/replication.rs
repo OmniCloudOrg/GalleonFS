@@ -360,18 +360,18 @@ pub struct PerformanceTracker {
     performance_history: Arc<RwLock<VecDeque<PerformanceSnapshot>>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationMetrics {
     /// Average replication latency
-    avg_latency_ms: f64,
+    pub avg_latency_ms: f64,
     /// Replication throughput (MB/s)
-    throughput_mbps: f64,
+    pub throughput_mbps: f64,
     /// Success rate
-    success_rate: f64,
+    pub success_rate: f64,
     /// Error rate
-    error_rate: f64,
+    pub error_rate: f64,
     /// Bandwidth utilization
-    bandwidth_utilization: f64,
+    pub bandwidth_utilization: f64,
 }
 
 #[derive(Debug, Clone)]

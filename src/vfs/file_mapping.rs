@@ -280,7 +280,7 @@ impl FileMapper {
     }
 
     /// Get or create an inode for a file path
-    async fn get_or_create_inode(&self, volume_id: Uuid, file_path: &Path) -> Result<u64> {
+    pub async fn get_or_create_inode(&self, volume_id: Uuid, file_path: &Path) -> Result<u64> {
         // Check if we already have a mapping for this path
         {
             let path_mappings = self.path_mappings.read().await;
@@ -393,42 +393,45 @@ impl FileMapper {
             .ok_or_else(|| anyhow::anyhow!("Volume not found: {}", volume_id))?;
 
         // Find shard with available blocks
-        for (shard_id, free_blocks) in &volume_allocation.free_blocks_per_shard {
-            if *free_blocks > 0 {
-                // Allocate block using strategy
-                let block_id = match volume_allocation.allocation_strategy {
-                    AllocationStrategy::FirstFit => self.allocate_first_fit(*shard_id, volume_allocation).await?,
-                    AllocationStrategy::BestFit => self.allocate_best_fit(*shard_id, volume_allocation).await?,
-                    AllocationStrategy::Sequential => self.allocate_sequential(*shard_id, volume_allocation).await?,
-                    _ => self.allocate_first_fit(*shard_id, volume_allocation).await?, // Default to first-fit
-                };
+        let shard_candidates: Vec<_> = volume_allocation.free_blocks_per_shard.iter()
+            .filter(|(_, free_blocks)| **free_blocks > 0)
+            .map(|(shard_id, _)| *shard_id)
+            .collect();
 
-                // Update free block count
-                if let Some(free_count) = volume_allocation.free_blocks_per_shard.get_mut(shard_id) {
-                    *free_count = free_count.saturating_sub(1);
-                }
+        for shard_id in shard_candidates {
+            // Allocate block using strategy
+            let block_id = match volume_allocation.allocation_strategy {
+                AllocationStrategy::FirstFit => self.allocate_first_fit(shard_id).await?,
+                AllocationStrategy::BestFit => self.allocate_best_fit(shard_id).await?,
+                AllocationStrategy::Sequential => self.allocate_sequential(shard_id).await?,
+                _ => self.allocate_first_fit(shard_id).await?, // Default to first-fit
+            };
 
-                return Ok((*shard_id, block_id));
+            // Update free block count
+            if let Some(free_count) = volume_allocation.free_blocks_per_shard.get_mut(&shard_id) {
+                *free_count = free_count.saturating_sub(1);
             }
+
+            return Ok((shard_id, block_id));
         }
 
         Err(anyhow::anyhow!("No free blocks available in volume: {}", volume_id))
     }
 
-    async fn allocate_first_fit(&self, shard_id: u32, _volume_allocation: &mut VolumeBlockAllocation) -> Result<u64> {
+    async fn allocate_first_fit(&self, _shard_id: u32) -> Result<u64> {
         // Simple first-fit: return next available block
         // TODO: Implement proper bitmap-based allocation
         Ok(rand::random::<u64>() % super::MAX_BLOCKS_PER_SHARD)
     }
 
-    async fn allocate_best_fit(&self, shard_id: u32, _volume_allocation: &mut VolumeBlockAllocation) -> Result<u64> {
+    async fn allocate_best_fit(&self, shard_id: u32) -> Result<u64> {
         // TODO: Implement best-fit allocation to minimize fragmentation
-        self.allocate_first_fit(shard_id, _volume_allocation).await
+        self.allocate_first_fit(shard_id).await
     }
 
-    async fn allocate_sequential(&self, shard_id: u32, _volume_allocation: &mut VolumeBlockAllocation) -> Result<u64> {
+    async fn allocate_sequential(&self, shard_id: u32) -> Result<u64> {
         // TODO: Implement sequential allocation for streaming workloads
-        self.allocate_first_fit(shard_id, _volume_allocation).await
+        self.allocate_first_fit(shard_id).await
     }
 
     /// Create root directory for a volume
