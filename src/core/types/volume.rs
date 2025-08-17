@@ -9,16 +9,24 @@ pub struct Volume {
     pub mount_point: Option<PathBuf>,
     pub is_mounted: bool,
     pub created_at: std::time::SystemTime,
+    pub current_size: u64,     // Current size in bytes
+    pub allocated_size: u64,   // Allocated size in bytes
 }
 
 impl Volume {
     pub fn new(name: String) -> Self {
+        Self::new_with_allocation(name, 1024 * 1024 * 1024) // Default 1GB allocation
+    }
+
+    pub fn new_with_allocation(name: String, allocation_size: u64) -> Self {
         Self {
             id: Uuid::new_v4(),
             name,
             mount_point: None,
             is_mounted: false,
             created_at: std::time::SystemTime::now(),
+            current_size: 0,
+            allocated_size: allocation_size,
         }
     }
 

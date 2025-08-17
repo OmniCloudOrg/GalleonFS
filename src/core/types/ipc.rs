@@ -5,12 +5,12 @@ use super::volume::Volume;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcRequest {
-    CreateVolume { name: String },
+    CreateVolume { name: String, allocation_size: u64 },
     DeleteVolume { name: String },
     ListVolumes,
     MountVolume { name: String, mount_point: PathBuf },
     UnmountVolume { name: String },
-    ModifyVolume { name: String, new_name: Option<String> },
+    ModifyVolume { name: String, new_name: Option<String>, new_allocation_size: Option<u64> },
     Shutdown,
 }
 

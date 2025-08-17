@@ -103,8 +103,8 @@ impl DaemonServer {
         watcher: &Arc<Mutex<FileWatcher>>,
     ) -> IpcResponse {
         match request {
-            IpcRequest::CreateVolume { name } => {
-                match state.create_volume(name.clone()).await {
+            IpcRequest::CreateVolume { name, allocation_size } => {
+                match state.create_volume_with_allocation(name.clone(), *allocation_size).await {
                     Ok(volume) => IpcResponse::VolumeCreated { volume },
                     Err(error) => IpcResponse::Error { message: error },
                 }
@@ -147,8 +147,8 @@ impl DaemonServer {
                 }
             }
             
-            IpcRequest::ModifyVolume { name, new_name } => {
-                match state.modify_volume(name, new_name.clone()).await {
+            IpcRequest::ModifyVolume { name, new_name, new_allocation_size } => {
+                match state.modify_volume(name, new_name.clone(), *new_allocation_size).await {
                     Ok(volume) => IpcResponse::VolumeModified { volume },
                     Err(error) => IpcResponse::Error { message: error },
                 }

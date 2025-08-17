@@ -30,6 +30,9 @@ enum Commands {
     Create {
         /// Name of the volume
         name: String,
+        /// Allocation size (e.g., 1G, 500M, 2T)
+        #[arg(long, default_value = "1G")]
+        size: String,
     },
     /// Delete a volume
     Delete {
@@ -48,13 +51,16 @@ enum Commands {
         /// Name of the volume
         name: String,
     },
-    /// Modify a volume (rename)
+    /// Modify a volume (rename or resize)
     Modify {
         /// Current name of the volume
         name: String,
         /// New name for the volume
         #[arg(long)]
         new_name: Option<String>,
+        /// New allocation size (e.g., 1G, 500M, 2T)
+        #[arg(long)]
+        size: Option<String>,
     },
 }
 
@@ -72,9 +78,9 @@ pub async fn run_cli() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let client = DaemonClient::new(cli.daemon_address);
             client.list_volumes().await?;
         }
-        Commands::Create { name } => {
+        Commands::Create { name, size } => {
             let client = DaemonClient::new(cli.daemon_address);
-            client.create_volume(name.clone()).await?;
+            client.create_volume(name.clone(), size.clone()).await?;
         }
         Commands::Delete { name } => {
             let client = DaemonClient::new(cli.daemon_address);
@@ -88,9 +94,9 @@ pub async fn run_cli() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let client = DaemonClient::new(cli.daemon_address);
             client.unmount_volume(name.clone()).await?;
         }
-        Commands::Modify { name, new_name } => {
+        Commands::Modify { name, new_name, size } => {
             let client = DaemonClient::new(cli.daemon_address);
-            client.modify_volume(name.clone(), new_name.clone()).await?;
+            client.modify_volume(name.clone(), new_name.clone(), size.clone()).await?;
         }
     }
     

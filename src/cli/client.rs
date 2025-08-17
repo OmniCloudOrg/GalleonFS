@@ -31,8 +31,12 @@ impl DaemonClient {
         Ok(response_message.response)
     }
 
-    pub async fn create_volume(&self, name: String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let response = self.send_request(IpcRequest::CreateVolume { name: name.clone() }).await?;
+    pub async fn create_volume(&self, name: String, size: String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let allocation_size = self.parse_size(&size)?;
+        let response = self.send_request(IpcRequest::CreateVolume { 
+            name: name.clone(),
+            allocation_size 
+        }).await?;
         
         match response {
             IpcResponse::VolumeCreated { volume } => {
@@ -90,6 +94,7 @@ impl DaemonClient {
         let name_width = cmp::max(4, volumes.iter().map(|v| v.name.len()).max().unwrap_or(0));
         let uuid_width = 36; // UUIDs are always 36 chars
         let status_width = 9; // "mounted" or "unmounted" (without color codes)
+        let usage_width = 15; // For "current/allocated" format like "1.2GB/5.0GB"
         let mount_width = cmp::max(12, volumes.iter().map(|v| {
             if let Some(ref mp) = v.mount_point {
                 mp.display().to_string().len()
@@ -98,19 +103,21 @@ impl DaemonClient {
             }
         }).max().unwrap_or(0));
 
-        // Print header with bold formatting
-        println!("\x1b[1m{:<name_width$} {:<uuid_width$} {:<status_width$} {:<mount_width$}\x1b[0m", 
-                "Name", "UUID", "Status", "Mount Point(s)",
+        // Print header with bold blue formatting
+        println!("\x1b[1;34m{:<name_width$}  {:<uuid_width$}  {:<status_width$}  {:<usage_width$}  {:<mount_width$}\x1b[0m", 
+                "Name", "UUID", "Status", "Usage", "Mount Point(s)",
                 name_width = name_width,
                 uuid_width = uuid_width,
                 status_width = status_width,
+                usage_width = usage_width,
                 mount_width = mount_width);
         
         // Print separator
-        println!("{} {} {} {}", 
+        println!("{}  {}  {}  {}  {}", 
                 "-".repeat(name_width),
                 "-".repeat(uuid_width), 
                 "-".repeat(status_width),
+                "-".repeat(usage_width),
                 "-".repeat(mount_width));
 
         // Print volume rows
@@ -121,6 +128,9 @@ impl DaemonClient {
                 "\x1b[31munmounted\x1b[0m"  // Red
             };
 
+            // Format usage as current/allocated
+            let usage = self.format_bytes_ratio(volume.current_size, volume.allocated_size);
+
             // Collect mount points (currently single, but structured for future multi-mount support)
             let mount_points: Vec<String> = if let Some(ref mp) = volume.mount_point {
                 vec![mp.display().to_string()]
@@ -129,7 +139,7 @@ impl DaemonClient {
             };
 
             // Print first row with all columns
-            print!("{:<name_width$} {:<uuid_width$} ", 
+            print!("{:<name_width$}  {:<uuid_width$}  ", 
                    volume.name, volume.id,
                    name_width = name_width,
                    uuid_width = uuid_width);
@@ -137,20 +147,91 @@ impl DaemonClient {
             // Print colored status with manual padding
             print!("{}", status_colored);
             let status_text_len = if volume.is_mounted { 7 } else { 9 }; // "mounted" vs "unmounted"
-            print!("{}", " ".repeat(status_width - status_text_len + 1));
+            print!("{}  ", " ".repeat(status_width - status_text_len));
             
-            // Print first mount point
-            println!("{}", mount_points[0]);
+            // Print usage and mount point
+            println!("{:<usage_width$}  {}", 
+                    usage, mount_points[0],
+                    usage_width = usage_width);
 
             // Print additional mount points (if any) with proper spacing
             for mount_point in mount_points.iter().skip(1) {
-                println!("{:<name_width$} {:<uuid_width$} {:<status_width$} {}", 
-                        "", "", "", mount_point,
+                println!("{:<name_width$}  {:<uuid_width$}  {:<status_width$}  {:<usage_width$}  {}", 
+                        "", "", "", "", mount_point,
                         name_width = name_width,
                         uuid_width = uuid_width,
-                        status_width = status_width);
+                        status_width = status_width,
+                        usage_width = usage_width);
             }
         }
+    }
+
+    fn format_bytes_ratio(&self, current: u64, allocated: u64) -> String {
+        fn format_bytes(bytes: u64) -> String {
+            const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+            let mut size = bytes as f64;
+            let mut unit_index = 0;
+            
+            while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+                size /= 1024.0;
+                unit_index += 1;
+            }
+            
+            if unit_index == 0 {
+                format!("{}B", bytes)
+            } else {
+                format!("{:.1}{}", size, UNITS[unit_index])
+            }
+        }
+        
+        format!("{}/{}", format_bytes(current), format_bytes(allocated))
+    }
+
+    fn parse_size(&self, size_str: &str) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        let size_str = size_str.trim().to_uppercase();
+        
+        if size_str.is_empty() {
+            return Err("Empty size string".into());
+        }
+        
+        // Extract numeric part and unit
+        let (number_str, unit) = if let Some(last_char) = size_str.chars().last() {
+            if last_char.is_alphabetic() {
+                let mut chars = size_str.chars();
+                let unit_char = chars.next_back().unwrap();
+                let number_part: String = chars.collect();
+                (number_part, unit_char.to_string())
+            } else {
+                (size_str, "B".to_string())
+            }
+        } else {
+            return Err("Invalid size format".into());
+        };
+        
+        // Parse the numeric part
+        let number: f64 = number_str.parse()
+            .map_err(|_| format!("Invalid number: {}", number_str))?;
+        
+        if number < 0.0 {
+            return Err("Size cannot be negative".into());
+        }
+        
+        // Convert based on unit
+        let multiplier = match unit.as_str() {
+            "B" => 1,
+            "K" => 1024,
+            "M" => 1024 * 1024,
+            "G" => 1024 * 1024 * 1024,
+            "T" => 1024_u64.pow(4),
+            "P" => 1024_u64.pow(5),
+            "E" => 1024_u64.pow(6),
+            "Z" => 1024_u64.pow(7),
+            "Y" => 1024_u64.pow(8),
+            _ => return Err(format!("Unknown unit: {}. Supported: B, K, M, G, T, P, E, Z, Y", unit).into()),
+        };
+        
+        let bytes = (number * multiplier as f64) as u64;
+        Ok(bytes)
     }
 
     pub async fn mount_volume(&self, name: String, mount_point: PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -190,10 +271,17 @@ impl DaemonClient {
         }
     }
 
-    pub async fn modify_volume(&self, name: String, new_name: Option<String>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn modify_volume(&self, name: String, new_name: Option<String>, size: Option<String>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let new_allocation_size = if let Some(size_str) = size {
+            Some(self.parse_size(&size_str)?)
+        } else {
+            None
+        };
+
         let response = self.send_request(IpcRequest::ModifyVolume { 
             name: name.clone(), 
-            new_name: new_name.clone() 
+            new_name: new_name.clone(),
+            new_allocation_size
         }).await?;
         
         match response {

@@ -43,6 +43,10 @@ impl DaemonState {
     }
 
     pub async fn create_volume(&self, name: String) -> Result<Volume, String> {
+        self.create_volume_with_allocation(name, 1024 * 1024 * 1024).await // Default 1GB
+    }
+
+    pub async fn create_volume_with_allocation(&self, name: String, allocation_size: u64) -> Result<Volume, String> {
         let volume = {
             let mut volumes = self.volumes.write().await;
             
@@ -50,7 +54,7 @@ impl DaemonState {
                 return Err(format!("Volume '{}' already exists", name));
             }
 
-            let volume = Volume::new(name.clone());
+            let volume = Volume::new_with_allocation(name.clone(), allocation_size);
             volumes.insert(name, volume.clone());
             volume
         };

@@ -4,7 +4,7 @@ A high-performance, distributed, network-replicated storage system built in Rust
 
 ## 🆕 Cross-Platform Virtual Filesystem (VFS)
 
-GalleonFS now includes a revolutionary cross-platform VFS that presents volumes as actual filesystems instead of block devices. This enables users to work with files and directories naturally while GalleonFS handles distributed storage, replication, and synchronization automatically.
+GalleonFS now includes a cross-platform VFS that presents volumes as actual filesystems instead of block devices. This enables users to work with files and directories naturally while GalleonFS handles distributed storage, replication, and synchronization automatically.
 
 ### Key VFS Features
 
