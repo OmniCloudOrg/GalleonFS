@@ -225,6 +225,28 @@ impl DaemonState {
         }
     }
 
+    pub async fn set_volume_usage(&self, name: &str, usage_size: u64) -> Result<Volume, String> {
+        let result = {
+            let mut volumes = self.volumes.write().await;
+            
+            if let Some(volume) = volumes.get_mut(name) {
+                volume.set_current_size(usage_size);
+                Ok(volume.clone())
+            } else {
+                Err(format!("Volume '{}' not found", name))
+            }
+        };
+
+        // Save state to disk if modification was successful
+        if result.is_ok() {
+            if let Err(e) = self.save_state().await {
+                tracing::warn!("Failed to save state after setting volume usage: {}", e);
+            }
+        }
+
+        result
+    }
+
     pub async fn get_mounted_volumes(&self) -> Vec<Volume> {
         let volumes = self.volumes.read().await;
         volumes.values()

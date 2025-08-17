@@ -11,6 +11,7 @@ pub enum IpcRequest {
     MountVolume { name: String, mount_point: PathBuf },
     UnmountVolume { name: String },
     ModifyVolume { name: String, new_name: Option<String>, new_allocation_size: Option<u64> },
+    SetUsage { name: String, usage_size: u64 },
     Shutdown,
 }
 

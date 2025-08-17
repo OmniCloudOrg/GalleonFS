@@ -209,8 +209,10 @@ impl DaemonClient {
         let usage_text = format!("{}/{}", format_bytes(current), format_bytes(allocated));
         let usage_percent = if allocated > 0 {
             (current as f64 / allocated as f64) * 100.0
+        } else if current > 0 {
+            100.0  // If no allocation but has usage, treat as 100% (over-allocated)
         } else {
-            0.0
+            0.0   // Both are 0
         };
         
         // Color coding based on usage percentage
@@ -356,6 +358,33 @@ impl DaemonClient {
             }
             IpcResponse::Error { message } => {
                 eprintln!("❌ Failed to modify volume '{}': {}", name, message);
+                Err(message.into())
+            }
+            _ => Err("Unexpected response".into()),
+        }
+    }
+
+    pub async fn set_volume_usage(&self, name: String, usage: String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let usage_size = self.parse_size(&usage)?;
+        let response = self.send_request(IpcRequest::SetUsage { 
+            name: name.clone(), 
+            usage_size 
+        }).await?;
+        
+        match response {
+            IpcResponse::VolumeModified { volume } => {
+                println!("✅ Volume '{}' usage set to {} ({}%)", 
+                    volume.name, 
+                    usage,
+                    if volume.allocated_size > 0 {
+                        format!("{:.1}", (volume.current_size as f64 / volume.allocated_size as f64) * 100.0)
+                    } else {
+                        "N/A".to_string()
+                    });
+                Ok(())
+            }
+            IpcResponse::Error { message } => {
+                eprintln!("❌ Failed to set usage for volume '{}': {}", name, message);
                 Err(message.into())
             }
             _ => Err("Unexpected response".into()),

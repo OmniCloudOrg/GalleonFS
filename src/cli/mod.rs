@@ -62,6 +62,13 @@ enum Commands {
         #[arg(long)]
         size: Option<String>,
     },
+    /// Set usage for testing color display (TESTING ONLY)
+    SetUsage {
+        /// Name of the volume
+        name: String,
+        /// Usage size (e.g., 500M, 800M)
+        usage: String,
+    },
 }
 
 pub async fn run_cli() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -97,6 +104,10 @@ pub async fn run_cli() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Commands::Modify { name, new_name, size } => {
             let client = DaemonClient::new(cli.daemon_address);
             client.modify_volume(name.clone(), new_name.clone(), size.clone()).await?;
+        }
+        Commands::SetUsage { name, usage } => {
+            let client = DaemonClient::new(cli.daemon_address);
+            client.set_volume_usage(name.clone(), usage.clone()).await?;
         }
     }
     

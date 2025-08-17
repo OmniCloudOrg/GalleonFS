@@ -154,6 +154,13 @@ impl DaemonServer {
                 }
             }
             
+            IpcRequest::SetUsage { name, usage_size } => {
+                match state.set_volume_usage(name, *usage_size).await {
+                    Ok(volume) => IpcResponse::VolumeModified { volume },
+                    Err(error) => IpcResponse::Error { message: error },
+                }
+            }
+            
             IpcRequest::Shutdown => {
                 info!("Shutdown request received, saving state...");
                 if let Err(e) = state.save_state().await {
