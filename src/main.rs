@@ -1,27 +1,18 @@
 mod cli;
 mod core;
+mod daemon;
 
-use core::types::{
-    inode::Inode,
-    node::NodeType,
-};
-use bitflags::bitflags;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-const FILE_TYPE_MASK: u64 = 0xF;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "galleonfs=info".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
-bitflags! {
-    #[derive(Debug,Clone, Copy,PartialEq,Eq,Hash)]
-    pub struct Permissions: u8 {
-        const EXECUTE = 0b001;
-        const READ = 0b010;
-        const WRITE = 0b100;
-
-        const RWX = Self::EXECUTE.bits() | Self::READ.bits() | Self::WRITE.bits();
-    }
-}
-
-fn main() {
-    let inode = Inode::new(NodeType::Symlink, Permissions::RWX);
-
-    println!("{}", inode);
+    cli::run_cli().await
 }

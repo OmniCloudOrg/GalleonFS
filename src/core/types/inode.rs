@@ -1,6 +1,20 @@
 use std::time::SystemTime;
 use std::collections::HashMap;
-use crate::{NodeType, Permissions, FILE_TYPE_MASK};
+use crate::core::types::node::NodeType;
+use bitflags::bitflags;
+
+const FILE_TYPE_MASK: u64 = 0xF;
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct Permissions: u8 {
+        const EXECUTE = 0b001;
+        const READ = 0b010;
+        const WRITE = 0b100;
+
+        const RWX = Self::EXECUTE.bits() | Self::READ.bits() | Self::WRITE.bits();
+    }
+}
 
 pub struct Inode {
     data: u64,

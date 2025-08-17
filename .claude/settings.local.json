@@ -8,7 +8,11 @@
       "Bash(powershell.exe:*)",
       "Bash(targetdebuggalleonfs.exe --help)",
       "Bash(./target/debug/galleonfs.exe --help)",
-      "Bash(./target/debug/galleonfs.exe:*)"
+      "Bash(./target/debug/galleonfs.exe:*)",
+      "Bash(mkdir:*)",
+      "Bash(taskkill:*)",
+      "Bash(del \"C:\\temp\\native-watch-test\\test-create.txt\")",
+      "Bash(rm:*)"
     ],
     "defaultMode": "acceptEdits"
   }
