@@ -71,22 +71,7 @@ impl DaemonClient {
                 if volumes.is_empty() {
                     println!("No volumes found");
                 } else {
-                    println!("📋 Volumes:");
-                    for volume in volumes {
-                        let status = if volume.is_mounted { "🟢 mounted" } else { "🔴 unmounted" };
-                        let mount_info = if let Some(ref mount_point) = volume.mount_point {
-                            format!(" at '{}'", mount_point.display())
-                        } else {
-                            String::new()
-                        };
-                        
-                        println!("  • {} ({}) - {}{}", 
-                            volume.name, 
-                            volume.id, 
-                            status,
-                            mount_info
-                        );
-                    }
+                    self.print_volumes_table(&volumes);
                 }
                 Ok(())
             }
@@ -95,6 +80,76 @@ impl DaemonClient {
                 Err(message.into())
             }
             _ => Err("Unexpected response".into()),
+        }
+    }
+
+    fn print_volumes_table(&self, volumes: &[crate::core::types::volume::Volume]) {
+        use std::cmp;
+        
+        // Calculate column widths
+        let name_width = cmp::max(4, volumes.iter().map(|v| v.name.len()).max().unwrap_or(0));
+        let uuid_width = 36; // UUIDs are always 36 chars
+        let status_width = 9; // "mounted" or "unmounted" (without color codes)
+        let mount_width = cmp::max(12, volumes.iter().map(|v| {
+            if let Some(ref mp) = v.mount_point {
+                mp.display().to_string().len()
+            } else {
+                1 // for "-"
+            }
+        }).max().unwrap_or(0));
+
+        // Print header with bold formatting
+        println!("\x1b[1m{:<name_width$} {:<uuid_width$} {:<status_width$} {:<mount_width$}\x1b[0m", 
+                "Name", "UUID", "Status", "Mount Point(s)",
+                name_width = name_width,
+                uuid_width = uuid_width,
+                status_width = status_width,
+                mount_width = mount_width);
+        
+        // Print separator
+        println!("{} {} {} {}", 
+                "-".repeat(name_width),
+                "-".repeat(uuid_width), 
+                "-".repeat(status_width),
+                "-".repeat(mount_width));
+
+        // Print volume rows
+        for volume in volumes {
+            let status_colored = if volume.is_mounted {
+                "\x1b[32mmounted\x1b[0m"  // Green
+            } else {
+                "\x1b[31munmounted\x1b[0m"  // Red
+            };
+
+            // Collect mount points (currently single, but structured for future multi-mount support)
+            let mount_points: Vec<String> = if let Some(ref mp) = volume.mount_point {
+                vec![mp.display().to_string()]
+            } else {
+                vec!["-".to_string()]
+            };
+
+            // Print first row with all columns
+            print!("{:<name_width$} {:<uuid_width$} ", 
+                   volume.name, volume.id,
+                   name_width = name_width,
+                   uuid_width = uuid_width);
+            
+            // Print colored status with manual padding
+            print!("{}", status_colored);
+            let status_text_len = if volume.is_mounted { 7 } else { 9 }; // "mounted" vs "unmounted"
+            print!("{}", " ".repeat(status_width - status_text_len + 1));
+            
+            // Print first mount point
+            println!("{}", mount_points[0]);
+
+            // Print additional mount points (if any) with proper spacing
+            for mount_point in mount_points.iter().skip(1) {
+                println!("{:<name_width$} {:<uuid_width$} {:<status_width$} {}", 
+                        "", "", "", mount_point,
+                        name_width = name_width,
+                        uuid_width = uuid_width,
+                        status_width = status_width);
+            }
         }
     }
 
