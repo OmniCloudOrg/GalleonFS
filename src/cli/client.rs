@@ -128,8 +128,8 @@ impl DaemonClient {
                 "\x1b[31munmounted\x1b[0m"  // Red
             };
 
-            // Format usage as current/allocated
-            let usage = self.format_bytes_ratio(volume.current_size, volume.allocated_size);
+            // Format usage as current/allocated with color coding
+            let usage = self.format_usage_with_color(volume.current_size, volume.allocated_size);
 
             // Collect mount points (currently single, but structured for future multi-mount support)
             let mount_points: Vec<String> = if let Some(ref mp) = volume.mount_point {
@@ -149,10 +149,11 @@ impl DaemonClient {
             let status_text_len = if volume.is_mounted { 7 } else { 9 }; // "mounted" vs "unmounted"
             print!("{}  ", " ".repeat(status_width - status_text_len));
             
-            // Print usage and mount point
-            println!("{:<usage_width$}  {}", 
-                    usage, mount_points[0],
-                    usage_width = usage_width);
+            // Print usage and mount point - usage may contain color codes, so handle spacing manually
+            print!("{}  ", usage);
+            let usage_text_len = self.get_text_length_without_colors(&usage);
+            print!("{}", " ".repeat(usage_width.saturating_sub(usage_text_len)));
+            println!("{}", mount_points[0]);
 
             // Print additional mount points (if any) with proper spacing
             for mount_point in mount_points.iter().skip(1) {
@@ -185,6 +186,66 @@ impl DaemonClient {
         }
         
         format!("{}/{}", format_bytes(current), format_bytes(allocated))
+    }
+
+    fn format_usage_with_color(&self, current: u64, allocated: u64) -> String {
+        fn format_bytes(bytes: u64) -> String {
+            const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+            let mut size = bytes as f64;
+            let mut unit_index = 0;
+            
+            while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+                size /= 1024.0;
+                unit_index += 1;
+            }
+            
+            if unit_index == 0 {
+                format!("{}B", bytes)
+            } else {
+                format!("{:.1}{}", size, UNITS[unit_index])
+            }
+        }
+        
+        let usage_text = format!("{}/{}", format_bytes(current), format_bytes(allocated));
+        let usage_percent = if allocated > 0 {
+            (current as f64 / allocated as f64) * 100.0
+        } else {
+            0.0
+        };
+        
+        // Color coding based on usage percentage
+        // <75% white, 75-85% yellow, 85-90% orange, 90-100% red, 100% white text on red background
+        if usage_percent >= 100.0 {
+            format!("\x1b[37;41m{}\x1b[0m", usage_text)  // White text on red background
+        } else if usage_percent >= 90.0 {
+            format!("\x1b[31m{}\x1b[0m", usage_text)     // Red
+        } else if usage_percent >= 85.0 {
+            format!("\x1b[91m{}\x1b[0m", usage_text)     // Orange (bright red)
+        } else if usage_percent >= 75.0 {
+            format!("\x1b[33m{}\x1b[0m", usage_text)     // Yellow
+        } else {
+            usage_text  // White (default)
+        }
+    }
+
+    fn get_text_length_without_colors(&self, text: &str) -> usize {
+        let mut length = 0;
+        let mut chars = text.chars();
+        
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                // Skip ANSI escape sequence
+                while let Some(escape_ch) = chars.next() {
+                    if escape_ch.is_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                length += 1;
+            }
+        }
+        
+        length
     }
 
     fn parse_size(&self, size_str: &str) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {

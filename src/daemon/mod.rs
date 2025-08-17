@@ -152,24 +152,49 @@ impl DaemonState {
         result
     }
 
-    pub async fn modify_volume(&self, name: &str, new_name: Option<String>) -> Result<Volume, String> {
+    pub async fn modify_volume(&self, name: &str, new_name: Option<String>, new_allocation_size: Option<u64>) -> Result<Volume, String> {
         let result = {
             let mut volumes = self.volumes.write().await;
-            
-            if let Some(new_name) = new_name {
-                if volumes.contains_key(&new_name) && &new_name != name {
+
+            // Check for name conflict before mutably borrowing the volume
+            if let Some(ref new_name) = new_name {
+                if volumes.contains_key(new_name) && new_name != name {
                     return Err(format!("Volume '{}' already exists", new_name));
                 }
-                
-                if let Some(mut volume) = volumes.remove(name) {
-                    volume.name = new_name.clone();
-                    volumes.insert(new_name, volume.clone());
-                    Ok(volume)
-                } else {
-                    Err(format!("Volume '{}' not found", name))
+            }
+
+            if let Some(volume) = volumes.get_mut(name) {
+                let mut vol = volume.clone();
+
+                // Handle name change
+                if let Some(new_name) = new_name.clone() {
+                    vol.name = new_name.clone();
                 }
+
+                // Handle allocation size change
+                if let Some(new_size) = new_allocation_size {
+                    // Validate that new size is not smaller than current usage
+                    if new_size < vol.current_size {
+                        return Err(format!(
+                            "Cannot shrink allocation below current usage ({} < {})", 
+                            self.format_bytes(new_size), 
+                            self.format_bytes(vol.current_size)
+                        ));
+                    }
+                    vol.allocated_size = new_size;
+                }
+
+                // Update the volume in the map
+                if let Some(new_name) = new_name {
+                    volumes.remove(name);
+                    volumes.insert(new_name, vol.clone());
+                } else {
+                    *volume = vol.clone();
+                }
+
+                Ok(vol)
             } else {
-                volumes.get(name).cloned().ok_or_else(|| format!("Volume '{}' not found", name))
+                Err(format!("Volume '{}' not found", name))
             }
         };
 
@@ -181,6 +206,23 @@ impl DaemonState {
         }
 
         result
+    }
+
+    fn format_bytes(&self, bytes: u64) -> String {
+        const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+        let mut size = bytes as f64;
+        let mut unit_index = 0;
+        
+        while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+            size /= 1024.0;
+            unit_index += 1;
+        }
+        
+        if unit_index == 0 {
+            format!("{}B", bytes)
+        } else {
+            format!("{:.1}{}", size, UNITS[unit_index])
+        }
     }
 
     pub async fn get_mounted_volumes(&self) -> Vec<Volume> {
