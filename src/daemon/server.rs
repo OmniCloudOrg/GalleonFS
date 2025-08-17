@@ -12,11 +12,12 @@ pub struct DaemonServer {
 }
 
 impl DaemonServer {
-    pub fn new() -> Self {
-        Self {
-            state: Arc::new(DaemonState::new()),
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let state = Arc::new(DaemonState::new().await?);
+        Ok(Self {
+            state,
             watcher: Arc::new(Mutex::new(FileWatcher::new())),
-        }
+        })
     }
 
     pub async fn start(&self, address: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -154,7 +155,12 @@ impl DaemonServer {
             }
             
             IpcRequest::Shutdown => {
-                info!("Shutdown request received");
+                info!("Shutdown request received, saving state...");
+                if let Err(e) = state.save_state().await {
+                    error!("Failed to save state during shutdown: {}", e);
+                } else {
+                    info!("State saved successfully");
+                }
                 std::process::exit(0);
             }
         }

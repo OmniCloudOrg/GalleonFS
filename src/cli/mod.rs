@@ -65,7 +65,7 @@ pub async fn run_cli() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Commands::Daemon { bind } => {
             use crate::daemon::server::DaemonServer;
             println!("🚀 Starting GalleonFS daemon on {}", bind);
-            let server = DaemonServer::new();
+            let server = DaemonServer::new().await?;
             server.start(bind).await?;
         }
         Commands::List => {
