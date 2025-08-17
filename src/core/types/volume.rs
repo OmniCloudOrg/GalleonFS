@@ -37,6 +37,7 @@ impl Volume {
 
     pub fn unmount(&mut self) {
         self.is_mounted = false;
+        self.mount_point = None;
     }
 
     pub fn set_current_size(&mut self, size: u64) {
