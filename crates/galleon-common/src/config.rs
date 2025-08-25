@@ -72,40 +72,6 @@ pub struct ResourceLimits {
     pub max_disk_bandwidth_bps: Option<u64>,
 }
 
-/// Storage engine configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageConfig {
-    /// Storage data directory
-    pub data_dir: PathBuf,
-    /// Default block size
-    pub block_size: u64,
-    /// Default chunk size for large volumes
-    pub chunk_size: u64,
-    /// Storage devices configuration
-    pub devices: DeviceConfig,
-    /// Storage classes configuration
-    pub storage_classes: HashMap<String, StorageClass>,
-    /// Journaling configuration
-    pub journal: JournalConfig,
-    /// Caching configuration
-    pub cache: CacheConfig,
-}
-
-/// Device configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceConfig {
-    /// Auto-discovery of storage devices
-    pub auto_discovery: bool,
-    /// Explicit device paths to use
-    pub device_paths: Vec<PathBuf>,
-    /// Device exclusion patterns
-    pub exclude_patterns: Vec<String>,
-    /// Minimum device size in bytes
-    pub min_device_size: u64,
-    /// Device health check interval
-    pub health_check_interval: chrono::Duration,
-}
-
 /// Journaling configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JournalConfig {

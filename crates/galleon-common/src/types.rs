@@ -225,21 +225,6 @@ pub struct Device {
     pub last_check: DateTime<Utc>,
 }
 
-/// Type of storage device
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum DeviceType {
-    /// NVMe SSD
-    Nvme,
-    /// SATA SSD
-    Ssd,
-    /// Traditional HDD
-    Hdd,
-    /// Intel Optane
-    Optane,
-    /// Memory-based storage
-    Memory,
-}
-
 /// Device operational status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DeviceStatus {

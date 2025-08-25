@@ -28,6 +28,7 @@ libc = { workspace = true }
 nix = { workspace = true }
 ring = { workspace = true }
 aes-gcm = { workspace = true }
+ed25519-dalek = { workspace = true }
 blake3 = { workspace = true }
 sha2 = { workspace = true }
 
