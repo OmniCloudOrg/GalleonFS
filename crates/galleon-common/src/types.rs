@@ -49,6 +49,215 @@ impl From<&str> for DeviceId {
     }
 }
 
+impl DeviceId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4().to_string())
+    }
+    
+    pub fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
+        // This is a placeholder - real implementation would maintain fd mapping
+        0
+    }
+}
+
+/// Unique identifier for a chunk
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ChunkId(Uuid);
+
+impl ChunkId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+    
+    pub fn from_volume_and_index(volume_id: VolumeId, index: u64) -> Self {
+        // Create deterministic chunk ID from volume ID and index
+        let mut bytes = volume_id.as_bytes().to_vec();
+        bytes.extend_from_slice(&index.to_le_bytes());
+        
+        // Use a hash to create UUID
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        let hash = hasher.finish();
+        
+        // Create UUID from hash (simplified)
+        let uuid_bytes = [
+            (hash >> 56) as u8, (hash >> 48) as u8, (hash >> 40) as u8, (hash >> 32) as u8,
+            (hash >> 24) as u8, (hash >> 16) as u8, (hash >> 8) as u8, hash as u8,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        
+        Self(Uuid::from_bytes(uuid_bytes))
+    }
+}
+
+impl std::fmt::Display for ChunkId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Unique identifier for I/O buffers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct BufferId(Uuid);
+
+impl BufferId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl std::fmt::Display for BufferId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// NUMA node identifier
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct NumaNode(pub usize);
+
+impl std::fmt::Display for NumaNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "numa{}", self.0)
+    }
+}
+
+/// Device type classification
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeviceType {
+    NVMe,
+    SATA,
+    SAS,
+    PATA,
+    Unknown,
+}
+
+/// Device status enumeration
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeviceStatus {
+    Healthy,
+    Warning,
+    Critical,
+    Failed,
+    Offline,
+}
+
+/// Device capabilities and characteristics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceCapabilities {
+    pub supports_direct_io: bool,
+    pub supports_trim: bool,
+    pub supports_write_same: bool,
+    pub max_io_size: usize,
+    pub alignment_requirement: usize,
+}
+
+/// Comprehensive device information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    pub device_path: PathBuf,
+    pub capacity: u64,
+    pub block_size: u32,
+    pub capabilities: DeviceCapabilities,
+    pub device_type: DeviceType,
+    pub serial_number: Option<String>,
+    pub model: Option<String>,
+}
+
+/// Device health monitoring data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceHealth {
+    pub device_id: DeviceId,
+    pub last_check: std::time::SystemTime,
+    pub status: DeviceStatus,
+    pub smart_data: Option<SmartData>,
+    pub io_errors: u64,
+    pub temperature: Option<u32>,
+    pub wear_level: Option<u8>,
+}
+
+/// SMART data from storage devices
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmartData {
+    pub temperature: Option<u32>,
+    pub power_on_hours: Option<u64>,
+    pub wear_level: Option<u8>,
+    pub error_count: u64,
+}
+
+/// I/O operation types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IoOperationType {
+    Read,
+    Write,
+    Sync,
+    Trim,
+}
+
+/// I/O operation description
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IoOperation {
+    pub device_id: DeviceId,
+    pub operation_type: IoOperationType,
+    pub offset: u64,
+    pub size: usize,
+    pub data: Option<Vec<u8>>,
+}
+
+/// Result of an I/O operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IoResult {
+    pub bytes_transferred: usize,
+    pub latency_us: u64,
+}
+
+/// Volume specification for creation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeSpec {
+    pub volume_id: VolumeId,
+    pub size: u64,
+    pub chunk_size: Option<usize>,
+    pub replication_factor: usize,
+    pub erasure_coding: Option<ErasureCodingConfig>,
+    pub performance_requirements: DeviceCapabilities,
+    pub compression_enabled: bool,
+    pub encryption_enabled: bool,
+}
+
+/// Erasure coding configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErasureCodingConfig {
+    pub data_blocks: usize,
+    pub parity_blocks: usize,
+}
+
+/// Chunk specification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkSpec {
+    pub chunk_id: ChunkId,
+    pub volume_id: VolumeId,
+    pub chunk_index: u64,
+    pub size: usize,
+    pub replication_factor: usize,
+    pub compression_enabled: bool,
+    pub encryption_enabled: bool,
+}
+
+/// Global storage statistics
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StorageStats {
+    pub total_operations: u64,
+    pub total_bytes_read: u64,
+    pub total_bytes_written: u64,
+    pub average_latency_us: f64,
+    pub active_volumes: usize,
+    pub total_devices: usize,
+    pub available_capacity: u64,
+    pub used_capacity: u64,
+}
+
 /// Unique identifier for a chunk
 pub type ChunkId = u64;
 

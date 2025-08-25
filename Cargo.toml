@@ -4,6 +4,10 @@ members = [
     "crates/galleon-common",
     "crates/galleon-coordinator",
     "crates/galleon-storage-node",
+    "crates/galleon-volume-agent",
+    "crates/galleon-gateway",
+    "crates/galleon-metrics",
+    "crates/galleon-cli",
 ]
 
 [workspace.dependencies]
@@ -62,7 +66,7 @@ ahash = "0.8"                          # High-performance hashing
 # Memory management and alignment
 aligned-vec = "0.5"                    # Aligned memory for O_DIRECT
 hugepage-rs = "0.1"                    # Huge page support (corrected version)
-numa = "0.2"                           # NUMA awareness
+# numa = "0.2"                           # NUMA awareness (commented out - not available)
 page_size = "0.5"                      # Page size detection
 
 # Cryptography (hardware accelerated)

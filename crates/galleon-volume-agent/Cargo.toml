@@ -1,0 +1,43 @@
+[package]
+name = "galleon-volume-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Volume management service for GalleonFS with FUSE filesystem interface"
+license = "MIT"
+repository = "https://github.com/OmniCloudOrg/GalleonFS"
+
+[dependencies]
+# Core async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Networking and RPC
+tonic = { workspace = true }
+prost = { workspace = true }
+hyper = { workspace = true }
+
+# FUSE filesystem support
+fuser = "0.14"
+
+# Configuration and serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+metrics = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Common library
+galleon-common = { path = "../galleon-common" }
+
+[[bin]]
+name = "galleon-volume-agent"
+path = "src/main.rs"

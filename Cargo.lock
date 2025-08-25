@@ -451,16 +451,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4964518bd3b4a8190e832886cdc0da9794f12e8e6c1613a9e90ff331c4c8724b"
 
 [[package]]
-name = "caps"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "190baaad529bcfbde9e1a19022c42781bdb6ff9de25721abdb8fd98c0807730b"
-dependencies = [
- "libc",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -643,15 +633,6 @@ name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "cpuid"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c4b055219ace68cabfbb8071c4aad068565d11b67e092e151b17b9fd3bdba9"
 dependencies = [
  "libc",
 ]
@@ -1131,12 +1112,8 @@ dependencies = [
  "aligned-vec",
  "anyhow",
  "async-trait",
- "bincode",
  "blake3",
- "byte-unit",
- "caps",
  "chrono",
- "cpuid",
  "crc32fast",
  "criterion",
  "crossbeam",
@@ -1144,7 +1121,6 @@ dependencies = [
  "futures",
  "galleon-common",
  "hugepage-rs",
- "humantime",
  "io-uring 0.6.4",
  "libc",
  "lz4",
@@ -1158,7 +1134,6 @@ dependencies = [
  "parking_lot 0.12.4",
  "procfs",
  "proptest",
- "prost",
  "rand 0.8.5",
  "rayon",
  "reed-solomon-erasure",
@@ -1167,7 +1142,6 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
- "sha2",
  "sled",
  "snap",
  "sysinfo",
@@ -1176,8 +1150,6 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tokio-uring",
- "toml 0.8.23",
- "tonic",
  "tracing",
  "tracing-subscriber",
  "uring-sys",

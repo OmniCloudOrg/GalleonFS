@@ -6,6 +6,9 @@ use std::io;
 /// Result type for GalleonFS operations
 pub type Result<T> = std::result::Result<T, GalleonError>;
 
+/// Result type for GalleonFS operations (convenience alias)
+pub type GalleonResult<T> = std::result::Result<T, GalleonError>;
+
 /// Main error type for GalleonFS
 #[derive(Error, Debug)]
 pub enum GalleonError {
@@ -108,6 +111,42 @@ pub enum GalleonError {
     /// Internal errors that should not normally occur
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    /// Volume not found
+    #[error("Volume not found: {0}")]
+    VolumeNotFound(crate::types::VolumeId),
+
+    /// Chunk not found
+    #[error("Chunk not found: {0}")]
+    ChunkNotFound(crate::types::ChunkId),
+
+    /// Invalid chunk size
+    #[error("Invalid chunk size: {0}")]
+    InvalidChunkSize(usize),
+
+    /// Insufficient capacity
+    #[error("Insufficient capacity: required {required}, available {available}")]
+    InsufficientCapacity { required: u64, available: u64 },
+
+    /// Insufficient resources
+    #[error("Insufficient {resource}: required {required}, available {available}")]
+    InsufficientResources { resource: String, required: usize, available: usize },
+
+    /// Allocation too large
+    #[error("Allocation too large: {0}")]
+    AllocationTooLarge(usize),
+
+    /// Allocation failed
+    #[error("Allocation failed: {0}")]
+    AllocationFailed(String),
+
+    /// Allocation not found
+    #[error("Allocation not found at offset: {0}")]
+    AllocationNotFound(u64),
+
+    /// System error
+    #[error("System error: {0}")]
+    SystemError(String),
 }
 
 impl From<serde_json::Error> for GalleonError {

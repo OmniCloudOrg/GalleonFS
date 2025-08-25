@@ -1,0 +1,45 @@
+[package]
+name = "galleon-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line interface for GalleonFS management"
+license = "MIT"
+repository = "https://github.com/OmniCloudOrg/GalleonFS"
+
+[dependencies]
+# Core async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# CLI framework
+clap = { workspace = true }
+
+# Networking and RPC
+tonic = { workspace = true }
+prost = { workspace = true }
+
+# Configuration and serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+toml = { workspace = true }
+
+# Human-readable output
+humantime = { workspace = true }
+byte-unit = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Common library
+galleon-common = { path = "../galleon-common" }
+
+[[bin]]
+name = "galleon"
+path = "src/main.rs"

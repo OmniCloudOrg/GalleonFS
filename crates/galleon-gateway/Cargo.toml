@@ -1,0 +1,43 @@
+[package]
+name = "galleon-gateway"
+version = "0.1.0"
+edition = "2021"
+description = "API gateway service for GalleonFS with S3-compatible and native APIs"
+license = "MIT"
+repository = "https://github.com/OmniCloudOrg/GalleonFS"
+
+[dependencies]
+# Core async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Networking and RPC
+tonic = { workspace = true }
+prost = { workspace = true }
+hyper = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Configuration and serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+metrics = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Common library
+galleon-common = { path = "../galleon-common" }
+
+[[bin]]
+name = "galleon-gateway"
+path = "src/main.rs"
