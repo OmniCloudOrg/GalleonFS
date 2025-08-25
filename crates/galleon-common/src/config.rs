@@ -956,9 +956,30 @@ impl ConfigLoader {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageNodeConfig {
     /// Node identification
-    pub node_id: String,
-    pub listen_address: SocketAddr,
+    pub node_id: NodeId,
+    pub bind_address: SocketAddr,
     pub ipc_address: Option<SocketAddr>,
+    
+    /// Device management
+    pub max_devices_per_node: usize,
+    pub enable_numa: bool,
+    pub enable_hw_accel: bool,
+    pub enable_cpu_affinity: bool,
+    
+    /// I/O engine settings
+    pub io_workers_per_numa: usize,
+    pub max_queue_depth: u32,
+    
+    /// Storage paths
+    pub metadata_path: PathBuf,
+    pub wal_path: PathBuf,
+    
+    /// Cache and memory
+    pub cache_size_mb: usize,
+    
+    /// Features
+    pub enable_compression: bool,
+    pub enable_encryption: bool,
     
     /// Device management configuration
     pub device: DeviceConfig,
@@ -1052,9 +1073,20 @@ pub struct StorageConfig {
 impl Default for StorageNodeConfig {
     fn default() -> Self {
         Self {
-            node_id: uuid::Uuid::new_v4().to_string(),
-            listen_address: "0.0.0.0:8080".parse().unwrap(),
+            node_id: NodeId::new(&uuid::Uuid::new_v4().to_string()),
+            bind_address: "0.0.0.0:9001".parse().unwrap(),
             ipc_address: None,
+            max_devices_per_node: 1000,
+            enable_numa: true,
+            enable_hw_accel: true,
+            enable_cpu_affinity: true,
+            io_workers_per_numa: 2,
+            max_queue_depth: 256,
+            metadata_path: PathBuf::from("/var/lib/galleonfs/metadata"),
+            wal_path: PathBuf::from("/var/lib/galleonfs/wal"),
+            cache_size_mb: 1024,
+            enable_compression: true,
+            enable_encryption: true,
             device: DeviceConfig::default(),
             io_engine: IoEngineConfig::default(),
             storage: StorageConfig::default(),
@@ -1114,30 +1146,7 @@ impl Default for StorageConfig {
 
 impl StorageNodeConfig {
     /// Load storage node configuration from environment and files
-    pub async fn load() -> Result<Self> {
-        // Try to load from config file first
-        if let Ok(config_path) = std::env::var("GALLEON_STORAGE_CONFIG") {
-            return Self::load_from_file(&config_path).await;
-        }
-        
-        // Default configuration with environment overrides
-        let mut config = Self::default();
-        
-        // Override with environment variables
-        if let Ok(node_id) = std::env::var("GALLEON_NODE_ID") {
-            config.node_id = node_id;
-        }
-        
-        if let Ok(listen_addr) = std::env::var("GALLEON_LISTEN_ADDRESS") {
-            config.listen_address = listen_addr.parse()
-                .map_err(|e| GalleonError::ConfigError(format!("Invalid listen address: {}", e)))?;
-        }
-        
-        Ok(config)
-    }
-    
-    /// Load configuration from file
-    pub async fn load_from_file(path: &str) -> Result<Self> {
+    pub async fn from_file(path: &str) -> Result<Self> {
         let content = tokio::fs::read_to_string(path).await
             .map_err(|e| GalleonError::ConfigError(format!("Failed to read config file {}: {}", path, e)))?;
         
@@ -1153,5 +1162,28 @@ impl StorageNodeConfig {
         } else {
             Err(GalleonError::ConfigError("Unknown config file format".to_string()))
         }
+    }
+    
+    /// Load storage node configuration from environment and files
+    pub async fn load() -> Result<Self> {
+        // Try to load from config file first
+        if let Ok(config_path) = std::env::var("GALLEON_STORAGE_CONFIG") {
+            return Self::from_file(&config_path).await;
+        }
+        
+        // Default configuration with environment overrides
+        let mut config = Self::default();
+        
+        // Override with environment variables
+        if let Ok(node_id) = std::env::var("GALLEON_NODE_ID") {
+            config.node_id = NodeId::new(&node_id);
+        }
+        
+        if let Ok(listen_addr) = std::env::var("GALLEON_LISTEN_ADDRESS") {
+            config.bind_address = listen_addr.parse()
+                .map_err(|e| GalleonError::ConfigError(format!("Invalid listen address: {}", e)))?;
+        }
+        
+        Ok(config)
     }
 }
