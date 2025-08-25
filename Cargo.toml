@@ -1,12 +1,9 @@
 [workspace]
+resolver = "2"
 members = [
     "crates/galleon-common",
     "crates/galleon-coordinator", 
     "crates/galleon-storage-node",
-    "crates/galleon-volume-agent",
-    "crates/galleon-gateway",
-    "crates/galleon-metrics",
-    "crates/galleon-cli"
 ]
 
 [workspace.dependencies]
@@ -64,7 +61,7 @@ ahash = "0.8"                          # High-performance hashing
 
 # Memory management and alignment
 aligned-vec = "0.5"                    # Aligned memory for O_DIRECT
-hugepage-rs = "0.4"                    # Huge page support
+hugepage-rs = "0.1"                    # Huge page support (corrected version)
 numa = "0.2"                           # NUMA awareness
 page_size = "0.5"                      # Page size detection
 
@@ -137,3 +134,7 @@ wiremock = "0.5"                       # HTTP mocking
 # Hardware acceleration detection
 cpuid = "0.1"                          # CPU feature detection
 is-x86-feature-detected = "0.1"        # x86 feature detection
+
+# Additional dependencies
+num_cpus = "1.16"                      # CPU core detection
+rand = "0.8"                           # Random number generation

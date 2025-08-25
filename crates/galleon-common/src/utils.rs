@@ -2,6 +2,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use byte_unit::{Byte, ByteError};
+use sysinfo::{System, SystemExt};
 use crate::error::{Result, GalleonError};
 
 /// Byte size utilities
@@ -24,14 +25,14 @@ impl ByteSize {
 
     /// Convert bytes to specific unit
     pub fn to_unit(bytes: u64, unit: &str) -> Result<f64> {
-        let byte = Byte::from_bytes(bytes as u128);
+        let bytes_f64 = bytes as f64;
         match unit.to_lowercase().as_str() {
             "b" | "bytes" => Ok(bytes as f64),
-            "kb" | "kilobytes" => Ok(byte.get_value() / 1024.0),
-            "mb" | "megabytes" => Ok(byte.get_value() / (1024.0 * 1024.0)),
-            "gb" | "gigabytes" => Ok(byte.get_value() / (1024.0 * 1024.0 * 1024.0)),
-            "tb" | "terabytes" => Ok(byte.get_value() / (1024.0 * 1024.0 * 1024.0 * 1024.0)),
-            "pb" | "petabytes" => Ok(byte.get_value() / (1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0)),
+            "kb" | "kilobytes" => Ok(bytes_f64 / 1024.0),
+            "mb" | "megabytes" => Ok(bytes_f64 / (1024.0 * 1024.0)),
+            "gb" | "gigabytes" => Ok(bytes_f64 / (1024.0 * 1024.0 * 1024.0)),
+            "tb" | "terabytes" => Ok(bytes_f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0)),
+            "pb" | "petabytes" => Ok(bytes_f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0)),
             _ => Err(GalleonError::InvalidInput(format!("Unknown byte unit: {}", unit))),
         }
     }
@@ -136,21 +137,21 @@ impl SystemInfo {
         }
         
         // Fallback using sysinfo
-        let mut sys = sysinfo::System::new();
+        let mut sys = System::new();
         sys.refresh_memory();
         sys.available_memory()
     }
 
     /// Get total memory in bytes
     pub fn total_memory() -> u64 {
-        let mut sys = sysinfo::System::new();
+        let mut sys = System::new();
         sys.refresh_memory();
         sys.total_memory()
     }
 
     /// Get CPU usage percentage
     pub fn cpu_usage() -> f32 {
-        let mut sys = sysinfo::System::new();
+        let mut sys = System::new();
         sys.refresh_cpu();
         std::thread::sleep(Duration::from_millis(100)); // Wait for measurement
         sys.refresh_cpu();

@@ -45,6 +45,8 @@ num_cpus = "1.16"
 get_if_addrs = "0.5"
 page_size = { workspace = true }
 aligned-vec = { workspace = true }
+crc32fast = { workspace = true }
+xxhash-rust = { workspace = true }
 
 # High-performance data structures
 dashmap = { workspace = true }

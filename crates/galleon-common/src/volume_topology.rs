@@ -443,7 +443,7 @@ impl PlacementEngine {
                 self.calculate_locality_aware_placement(&context)?
             }
             PlacementStrategy::Custom { placement_rules } => {
-                self.calculate_custom_placement(&context, placement_rules)?
+                self.calculate_custom_placement(&context, &placement_rules)?
             }
         };
 
@@ -558,7 +558,7 @@ impl PlacementEngine {
             let node_chunks = node_usage.get(&device.node_id).unwrap_or(&0u32);
             let device_chunks = device_usage.get(&device.id).unwrap_or(&0u32);
 
-            if *node_chunks < *max_chunks_per_node && *device_chunks < *max_chunks_per_device {
+            if *node_chunks < max_chunks_per_node && *device_chunks < max_chunks_per_device {
                 selected_devices.push(device);
                 *node_usage.entry(device.node_id).or_insert(0) += 1;
                 *device_usage.entry(device.id.clone()).or_insert(0) += 1;
