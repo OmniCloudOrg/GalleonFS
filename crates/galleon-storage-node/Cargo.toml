@@ -1,0 +1,117 @@
+[package]
+name = "galleon-storage-node"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance distributed storage node with Linux optimization"
+license = "MIT"
+
+[dependencies]
+# Workspace dependencies
+galleon-common = { path = "../galleon-common" }
+
+# Core async runtime
+tokio = { workspace = true }
+tokio-uring = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# High-performance Linux I/O
+io-uring = { workspace = true }
+uring-sys = { workspace = true }
+libc = { workspace = true }
+nix = { workspace = true }
+mio = { workspace = true }
+
+# Linux-specific optimizations
+libbpf-sys = { workspace = true }
+procfs = { workspace = true }
+sysinfo = { workspace = true }
+caps = { workspace = true }
+systemd = { workspace = true }
+cgroups-rs = { workspace = true }
+
+# Networking and RPC
+tonic = { workspace = true }
+prost = { workspace = true }
+hyper = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# High-performance networking
+rdma-sys = { workspace = true }
+socket2 = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+rmp-serde = { workspace = true }
+
+# Storage and databases
+rocksdb = { workspace = true }
+tikv-jemallocator = { workspace = true }
+memmap2 = { workspace = true }
+crc32fast = { workspace = true }
+xxhash-rust = { workspace = true }
+ahash = { workspace = true }
+
+# Memory management and alignment
+aligned-vec = { workspace = true }
+hugepage-rs = { workspace = true }
+page_size = { workspace = true }
+
+# Cryptography (hardware accelerated)
+ring = { workspace = true }
+aes-gcm = { workspace = true }
+sha2 = { workspace = true }
+blake3 = { workspace = true }
+
+# Compression
+lz4 = { workspace = true }
+zstd = { workspace = true }
+snap = { workspace = true }
+
+# Observability and metrics
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+metrics = { workspace = true }
+
+# Configuration and utilities
+uuid = { workspace = true }
+chrono = { workspace = true }
+humantime = { workspace = true }
+byte-unit = { workspace = true }
+
+# Error handling and utilities
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+crossbeam = { workspace = true }
+dashmap = { workspace = true }
+rayon = { workspace = true }
+
+# Reed-Solomon erasure coding
+reed-solomon-erasure = { workspace = true }
+reed-solomon-simd = { workspace = true }
+
+# Hardware acceleration detection
+cpuid = { workspace = true }
+
+# Additional dependencies
+num_cpus = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+
+[features]
+default = ["rdma", "numa"]
+rdma = []
+numa = []
+spdk = []
+
+[build-dependencies]
+tonic-build = "0.10"
+
+[[bin]]
+name = "galleon-storage-node"
+path = "src/main.rs"
