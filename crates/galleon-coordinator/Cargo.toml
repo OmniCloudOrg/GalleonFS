@@ -1,0 +1,59 @@
+[package]
+name = "galleon-coordinator"
+version = "0.1.0"
+edition = "2021"
+description = "Control plane service for GalleonFS distributed storage system"
+
+[[bin]]
+name = "galleon-coordinator"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace dependencies
+galleon-common = { path = "../galleon-common" }
+
+# Core async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# gRPC and networking
+tonic = { workspace = true }
+prost = { workspace = true }
+hyper = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Distributed consensus
+raft = { workspace = true }
+sled = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+
+# Storage and databases
+rocksdb = { workspace = true }
+
+# Machine learning
+candle-core = { workspace = true }
+candle-nn = { workspace = true }
+ndarray = { workspace = true }
+nalgebra = { workspace = true }
+
+# Configuration and CLI
+clap = { workspace = true }
+config = { workspace = true }
+toml = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# High-performance data structures
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+
+[build-dependencies]
+tonic-build = "0.10"

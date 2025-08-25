@@ -1,43 +1,139 @@
-[package]
-name = "galleonfs"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "crates/galleon-common",
+    "crates/galleon-coordinator", 
+    "crates/galleon-storage-node",
+    "crates/galleon-volume-agent",
+    "crates/galleon-gateway",
+    "crates/galleon-metrics",
+    "crates/galleon-cli"
+]
 
-[[bin]]
-name = "galleonfs"
-path = "src/main.rs"
+[workspace.dependencies]
+# Core async runtime
+tokio = { version = "1.35", features = ["full", "tracing", "rt-multi-thread"] }
+tokio-uring = "0.4"                    # Linux io_uring support
+futures = "0.3"
+async-trait = "0.1"
 
-[dependencies]
-tokio = { version = "1.47.1", features = ["full"] }
-serde = { version = "1.0.219", features = ["derive"] }
-bincode = "1.3.3"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-clap = { version = "4.5.45", features = ["derive"] }
-uuid = { version = "1.18.0", features = ["v4", "serde"] }
-bitflags = "2.9.2"
-notify = "6.1.1"
-dirs = "5.0.1"
-serde_json = "1.0.132"
+# High-performance Linux I/O
+io-uring = "0.6"                       # Direct io_uring access
+uring-sys = "0.6"                      # Low-level io_uring bindings
+libc = "0.2"                           # System calls
+nix = "0.27"                           # Unix APIs
+mio = "0.8"                           # Event-driven I/O
 
-# Cross-platform VFS support
-[target.'cfg(unix)'.dependencies]
-fuser = { version = "0.15.1", optional = true }
-libc = { version = "0.2.175", optional = true }
+# Linux-specific optimizations
+libbpf-sys = "1.2"                     # eBPF integration
+procfs = "0.16"                        # /proc filesystem access
+sysinfo = "0.29"                       # System information
+caps = "0.5"                           # Linux capabilities
+systemd = "0.10"                       # systemd integration
+cgroups-rs = "0.3"                     # cgroups management
 
-[target.'cfg(windows)'.dependencies]
-# winfsp = { version = "0.8", optional = true }  # Commented out - crate is yanked
-windows = { version = "0.61.3", features = [
-    "Win32_Foundation",
-    "Win32_System_IO",
-    "Win32_Storage_FileSystem",
-], optional = true }
+# Networking and RPC
+tonic = "0.10"                         # gRPC framework
+prost = "0.12"                         # Protocol buffers
+hyper = { version = "0.14", features = ["full"] }
+tower = "0.4"                          # Service framework
+tower-http = "0.4"                     # HTTP utilities
+axum = "0.7"                          # Web framework
+quinn = "0.10"                         # QUIC protocol for fast replication
 
-[features]
-default = ["vfs"]
-vfs = []  # VFS without FUSE dependencies for demonstration
-fuse = ["fuser", "libc"]  # Optional FUSE support
-# winfsp-support = ["winfsp", "windows"]  # Commented out - winfsp crate is yanked
+# High-performance networking
+rdma-sys = "0.1"                       # RDMA/InfiniBand support
+dpdk-sys = "0.1"                       # DPDK userspace networking (if available)
+socket2 = "0.5"                        # Advanced socket options
 
-[dev-dependencies]
-tempfile = "3.20.0"
+# Distributed systems
+raft = "0.7"                           # Raft consensus
+etcd-client = "0.12"                   # etcd integration (optional)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"                        # Binary serialization
+rmp-serde = "1.1"                      # MessagePack serialization
+
+# Storage and databases
+rocksdb = "0.21"                       # Embedded key-value store
+sled = "0.34"                          # Alternative embedded DB
+tikv-jemallocator = "0.5"             # Memory allocator
+memmap2 = "0.7"                        # Memory mapping
+crc32fast = "1.3"                      # Checksums
+xxhash-rust = "0.8"                    # Fast hashing
+ahash = "0.8"                          # High-performance hashing
+
+# Memory management and alignment
+aligned-vec = "0.5"                    # Aligned memory for O_DIRECT
+hugepage-rs = "0.4"                    # Huge page support
+numa = "0.2"                           # NUMA awareness
+page_size = "0.5"                      # Page size detection
+
+# Cryptography (hardware accelerated)
+ring = "0.17"                          # Hardware-accelerated crypto
+aes-gcm = "0.10"                       # AES-GCM encryption
+ed25519-dalek = "2.0"                  # Digital signatures
+x25519-dalek = "2.0"                   # Key exchange
+sha2 = "0.10"                          # SHA hashing
+blake3 = "1.5"                         # BLAKE3 hashing
+
+# Compression
+lz4 = "1.24"                           # LZ4 compression
+zstd = "0.12"                          # Zstandard compression
+snap = "1.1"                           # Snappy compression
+
+# Observability and metrics
+tracing = "0.1"                        # Structured logging
+tracing-subscriber = "0.3"             # Log formatting
+tracing-opentelemetry = "0.21"         # OpenTelemetry integration
+opentelemetry = "0.20"                 # Distributed tracing
+opentelemetry-jaeger = "0.19"          # Jaeger exporter
+metrics = "0.21"                       # Metrics collection
+prometheus = "0.13"                    # Prometheus metrics
+
+# Machine learning and optimization
+candle-core = "0.3"                    # ML framework
+candle-nn = "0.3"                      # Neural networks
+ndarray = "0.15"                       # N-dimensional arrays
+nalgebra = "0.32"                      # Linear algebra
+
+# Container integration
+bollard = "0.14"                       # Docker API
+k8s-openapi = "0.20"                   # Kubernetes API
+kube = "0.87"                          # Kubernetes client
+
+# Filesystem interface
+fuser = "0.14"                         # FUSE filesystem
+selinux = "0.4"                        # SELinux integration
+
+# Configuration and CLI
+clap = { version = "4.4", features = ["derive"] }
+config = "0.13"                        # Configuration management
+toml = "0.8"                          # TOML parsing
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+humantime = "2.1"                      # Human-readable time
+byte-unit = "4.0"                      # Byte size parsing
+
+# Error handling and utilities
+anyhow = "1.0"                         # Error handling
+thiserror = "1.0"                      # Error derivation
+once_cell = "1.19"                     # Global state
+parking_lot = "0.12"                   # High-performance synchronization
+crossbeam = "0.8"                      # Lock-free data structures
+dashmap = "5.5"                        # Concurrent hash map
+rayon = "1.8"                          # Data parallelism
+
+# Reed-Solomon erasure coding
+reed-solomon-erasure = "6.0"           # Erasure coding implementation
+reed-solomon-simd = "2.1"              # SIMD-accelerated erasure coding
+
+# Development and testing
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"                       # Property-based testing
+mockall = "0.12"                       # Mocking framework
+tempfile = "3.8"                       # Temporary files
+wiremock = "0.5"                       # HTTP mocking
+
+# Hardware acceleration detection
+cpuid = "0.1"                          # CPU feature detection
+is-x86-feature-detected = "0.1"        # x86 feature detection
