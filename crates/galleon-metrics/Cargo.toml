@@ -1,0 +1,42 @@
+[package]
+name = "galleon-metrics"
+version = "0.1.0"
+edition = "2021"
+description = "Observability service for GalleonFS with metrics collection and analytics"
+license = "MIT"
+repository = "https://github.com/OmniCloudOrg/GalleonFS"
+
+[dependencies]
+# Core async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Observability and metrics
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+metrics = { workspace = true }
+prometheus = { workspace = true }
+
+# Networking and RPC
+tonic = { workspace = true }
+prost = { workspace = true }
+hyper = { workspace = true }
+axum = { workspace = true }
+
+# Configuration and serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Common library
+galleon-common = { path = "../galleon-common" }
+
+[[bin]]
+name = "galleon-metrics"
+path = "src/main.rs"
