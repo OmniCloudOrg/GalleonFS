@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/galleon-common",
-    "crates/galleon-coordinator", 
+    "crates/galleon-coordinator",
     "crates/galleon-storage-node",
 ]
 
@@ -87,21 +87,6 @@ opentelemetry-jaeger = "0.19"          # Jaeger exporter
 metrics = "0.21"                       # Metrics collection
 prometheus = "0.13"                    # Prometheus metrics
 
-# Machine learning and optimization
-candle-core = "0.3"                    # ML framework
-candle-nn = "0.3"                      # Neural networks
-ndarray = "0.15"                       # N-dimensional arrays
-nalgebra = "0.32"                      # Linear algebra
-
-# Container integration
-bollard = "0.14"                       # Docker API
-k8s-openapi = "0.20"                   # Kubernetes API
-kube = "0.87"                          # Kubernetes client
-
-# Filesystem interface
-fuser = "0.14"                         # FUSE filesystem
-selinux = "0.4"                        # SELinux integration
-
 # Configuration and CLI
 clap = { version = "4.4", features = ["derive"] }
 config = "0.13"                        # Configuration management
@@ -133,8 +118,8 @@ wiremock = "0.5"                       # HTTP mocking
 
 # Hardware acceleration detection
 cpuid = "0.1"                          # CPU feature detection
-is-x86-feature-detected = "0.1"        # x86 feature detection
 
 # Additional dependencies
 num_cpus = "1.16"                      # CPU core detection
 rand = "0.8"                           # Random number generation
+rand_distr = "0.4"                     # Random distributions

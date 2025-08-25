@@ -14,7 +14,40 @@ pub type NodeId = Uuid;
 pub type VolumeId = Uuid;
 
 /// Unique identifier for a device
-pub type DeviceId = String;
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DeviceId(String);
+
+impl DeviceId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+    
+    pub fn from_path(path: &std::path::Path) -> Self {
+        Self(path.to_string_lossy().into_owned())
+    }
+    
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for DeviceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<String> for DeviceId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for DeviceId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
 
 /// Unique identifier for a chunk
 pub type ChunkId = u64;
@@ -336,6 +369,49 @@ pub enum VolumeBindingMode {
     Immediate,
     /// Wait for first consumer before binding
     WaitForFirstConsumer,
+}
+
+/// Device type classification
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DeviceType {
+    /// NVMe SSD device
+    NVMe,
+    /// SATA/SAS SSD device  
+    SSD,
+    /// Traditional hard disk drive
+    HDD,
+}
+
+/// Device capacity information
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceCapacity {
+    bytes: u64,
+}
+
+impl DeviceCapacity {
+    pub fn new(bytes: u64) -> Self {
+        Self { bytes }
+    }
+    
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+    
+    pub fn kb(&self) -> u64 {
+        self.bytes / 1024
+    }
+    
+    pub fn mb(&self) -> u64 {
+        self.bytes / (1024 * 1024)
+    }
+    
+    pub fn gb(&self) -> u64 {
+        self.bytes / (1024 * 1024 * 1024)
+    }
+    
+    pub fn tb(&self) -> u64 {
+        self.bytes / (1024 * 1024 * 1024 * 1024)
+    }
 }
 
 /// QoS (Quality of Service) policy

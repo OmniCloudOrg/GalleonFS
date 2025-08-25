@@ -36,12 +36,6 @@ bincode = { workspace = true }
 # Storage and databases
 rocksdb = { workspace = true }
 
-# Machine learning
-candle-core = { workspace = true }
-candle-nn = { workspace = true }
-ndarray = { workspace = true }
-nalgebra = { workspace = true }
-
 # Configuration and CLI
 clap = { workspace = true }
 config = { workspace = true }

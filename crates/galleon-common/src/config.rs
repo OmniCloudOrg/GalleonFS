@@ -985,3 +985,207 @@ impl ConfigLoader {
             .map_err(|e| GalleonError::ConfigError(format!("Failed to serialize JSON config: {}", e)))
     }
 }
+
+/// Storage node specific configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageNodeConfig {
+    /// Node identification
+    pub node_id: String,
+    pub listen_address: SocketAddr,
+    pub ipc_address: Option<SocketAddr>,
+    
+    /// Device management configuration
+    pub device: DeviceConfig,
+    
+    /// I/O engine configuration  
+    pub io_engine: IoEngineConfig,
+    
+    /// Storage engine configuration
+    pub storage: StorageConfig,
+    
+    /// Metrics configuration
+    pub metrics: MetricsConfig,
+    
+    /// Security configuration
+    pub security: SecurityConfig,
+}
+
+/// Device management configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceConfig {
+    /// Maximum devices per node
+    pub max_devices_per_node: usize,
+    
+    /// Minimum device capacity in bytes
+    pub min_device_capacity: u64,
+    
+    /// Device discovery cache duration in seconds
+    pub discovery_cache_seconds: u64,
+    
+    /// Device types to include
+    pub allowed_device_types: Vec<String>,
+    
+    /// Device paths to exclude
+    pub excluded_device_paths: Vec<String>,
+    
+    /// SMART monitoring enabled
+    pub smart_monitoring_enabled: bool,
+    
+    /// Health check interval in seconds
+    pub health_check_interval_seconds: u64,
+}
+
+/// I/O engine configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IoEngineConfig {
+    /// io_uring queue size
+    pub ring_size: u32,
+    
+    /// Number of I/O threads per device
+    pub threads_per_device: u32,
+    
+    /// Buffer pool configuration
+    pub buffers_per_numa_node: usize,
+    pub buffer_size: usize,
+    
+    /// Batch processing settings
+    pub max_batch_size: u32,
+    pub batch_timeout_ms: u64,
+    
+    /// Performance tuning
+    pub use_sqpoll: bool,
+    pub use_huge_pages: bool,
+    pub numa_aware: bool,
+}
+
+/// Storage engine configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageConfig {
+    /// Chunk configuration
+    pub chunk_size: u64,
+    pub max_chunks_per_device: u64,
+    
+    /// Replication settings
+    pub default_replication_factor: u32,
+    pub enable_erasure_coding: bool,
+    
+    /// Compression settings
+    pub enable_compression: bool,
+    pub compression_algorithm: String,
+    pub compression_level: u32,
+    
+    /// Encryption settings
+    pub enable_encryption: bool,
+    pub encryption_algorithm: String,
+    
+    /// WAL configuration
+    pub wal_enabled: bool,
+    pub wal_sync_interval_ms: u64,
+}
+
+impl Default for StorageNodeConfig {
+    fn default() -> Self {
+        Self {
+            node_id: uuid::Uuid::new_v4().to_string(),
+            listen_address: "0.0.0.0:8080".parse().unwrap(),
+            ipc_address: None,
+            device: DeviceConfig::default(),
+            io_engine: IoEngineConfig::default(),
+            storage: StorageConfig::default(),
+            metrics: MetricsConfig::default(),
+            security: SecurityConfig::default(),
+        }
+    }
+}
+
+impl Default for DeviceConfig {
+    fn default() -> Self {
+        Self {
+            max_devices_per_node: 1000,
+            min_device_capacity: 1024 * 1024 * 1024, // 1GB
+            discovery_cache_seconds: 60,
+            allowed_device_types: vec!["nvme".to_string(), "ssd".to_string(), "hdd".to_string()],
+            excluded_device_paths: vec![],
+            smart_monitoring_enabled: true,
+            health_check_interval_seconds: 30,
+        }
+    }
+}
+
+impl Default for IoEngineConfig {
+    fn default() -> Self {
+        Self {
+            ring_size: 256,
+            threads_per_device: 2,
+            buffers_per_numa_node: 1024,
+            buffer_size: 2 * 1024 * 1024, // 2MB
+            max_batch_size: 64,
+            batch_timeout_ms: 1,
+            use_sqpoll: true,
+            use_huge_pages: true,
+            numa_aware: true,
+        }
+    }
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            chunk_size: 64 * 1024 * 1024, // 64MB
+            max_chunks_per_device: 1000000,
+            default_replication_factor: 3,
+            enable_erasure_coding: true,
+            enable_compression: true,
+            compression_algorithm: "zstd".to_string(),
+            compression_level: 3,
+            enable_encryption: true,
+            encryption_algorithm: "aes-256-gcm".to_string(),
+            wal_enabled: true,
+            wal_sync_interval_ms: 100,
+        }
+    }
+}
+
+impl StorageNodeConfig {
+    /// Load storage node configuration from environment and files
+    pub async fn load() -> Result<Self> {
+        // Try to load from config file first
+        if let Ok(config_path) = std::env::var("GALLEON_STORAGE_CONFIG") {
+            return Self::load_from_file(&config_path).await;
+        }
+        
+        // Default configuration with environment overrides
+        let mut config = Self::default();
+        
+        // Override with environment variables
+        if let Ok(node_id) = std::env::var("GALLEON_NODE_ID") {
+            config.node_id = node_id;
+        }
+        
+        if let Ok(listen_addr) = std::env::var("GALLEON_LISTEN_ADDRESS") {
+            config.listen_address = listen_addr.parse()
+                .map_err(|e| GalleonError::ConfigError(format!("Invalid listen address: {}", e)))?;
+        }
+        
+        Ok(config)
+    }
+    
+    /// Load configuration from file
+    pub async fn load_from_file(path: &str) -> Result<Self> {
+        let content = tokio::fs::read_to_string(path).await
+            .map_err(|e| GalleonError::ConfigError(format!("Failed to read config file {}: {}", path, e)))?;
+        
+        if path.ends_with(".toml") {
+            toml::from_str(&content)
+                .map_err(|e| GalleonError::ConfigError(format!("Failed to parse TOML config: {}", e)))
+        } else if path.ends_with(".yaml") || path.ends_with(".yml") {
+            serde_yaml::from_str(&content)
+                .map_err(|e| GalleonError::ConfigError(format!("Failed to parse YAML config: {}", e)))
+        } else if path.ends_with(".json") {
+            serde_json::from_str(&content)
+                .map_err(|e| GalleonError::ConfigError(format!("Failed to parse JSON config: {}", e)))
+        } else {
+            Err(GalleonError::ConfigError("Unknown config file format".to_string()))
+        }
+    }
+}
